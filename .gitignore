@@ -1,2 +1,4 @@
-.DS_Store/*
-.git
+# macOS
+.DS_Store
+**/.DS_Store
+
