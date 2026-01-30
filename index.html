@@ -1,4 +1,631 @@
-<!html5>
-  <h1>hello</h1>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Top Hat Ferals</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
 
-  </html>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <!-- Header -->
+    <header
+      class="sticky top-0 z-50 border-b border-white/10 bg-slate-950/80 backdrop-blur"
+    >
+      <div
+        class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4"
+      >
+        <div class="flex items-center gap-3">
+          <div
+            class="grid h-10 w-10 place-items-center rounded-2xl bg-white/10"
+          >
+            🎩
+          </div>
+          <div>
+            <div class="text-lg font-semibold tracking-tight" id="siteName">
+              Top Hat Ferals
+            </div>
+            <div class="text-xs text-slate-300">
+              Neighborhood feral cat colony updates
+            </div>
+          </div>
+        </div>
+
+        <nav class="hidden gap-2 sm:flex" aria-label="Primary">
+          <button data-tab="home" class="tab-btn">Home</button>
+          <button data-tab="ferals" class="tab-btn">Meet the Ferals</button>
+          <button data-tab="updates" class="tab-btn">
+            Sightings & Updates
+          </button>
+          <button data-tab="about" class="tab-btn">About</button>
+        </nav>
+
+        <button
+          id="menuBtn"
+          class="sm:hidden rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm"
+        >
+          Menu
+        </button>
+      </div>
+
+      <!-- Mobile nav -->
+      <div
+        id="mobileNav"
+        class="hidden border-t border-white/10 bg-slate-950/90 sm:hidden"
+      >
+        <div class="mx-auto grid max-w-6xl gap-2 px-4 py-3">
+          <button data-tab="home" class="tab-btn w-full justify-start">
+            Home
+          </button>
+          <button data-tab="ferals" class="tab-btn w-full justify-start">
+            Meet the Ferals
+          </button>
+          <button data-tab="updates" class="tab-btn w-full justify-start">
+            Sightings & Updates
+          </button>
+          <button data-tab="about" class="tab-btn w-full justify-start">
+            About
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="mx-auto max-w-6xl px-4 py-10">
+      <!-- Status / Loading -->
+      <div
+        id="status"
+        class="mb-6 hidden rounded-2xl border border-white/10 bg-white/5 p-4 text-sm"
+      ></div>
+
+      <!-- HOME -->
+      <section id="tab-home" class="tab-panel">
+        <div class="grid gap-8 lg:grid-cols-12">
+          <div class="lg:col-span-5">
+            <h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">
+              Welcome to
+              <span class="text-emerald-300" id="siteName2"
+                >Top Hat Ferals</span
+              >
+            </h1>
+            <p class="mt-4 text-slate-300">
+              A simple, public log of our neighborhood feral cat colony — who’s
+              around, who’s new, and what’s been happening lately.
+            </p>
+
+            <div
+              class="mt-6 grid gap-3 rounded-2xl border border-white/10 bg-white/5 p-5"
+            >
+              <div class="text-sm text-slate-200">
+                <span class="font-semibold">Latest update:</span>
+                <span id="lastUpdated">—</span>
+              </div>
+              <div class="text-sm text-slate-300">
+                Tip: add photos by pasting a GitHub raw image URL into the
+                <code class="rounded bg-black/30 px-1 py-0.5">photo</code>
+                column in your Sheet.
+              </div>
+            </div>
+          </div>
+
+          <div class="lg:col-span-7">
+            <div class="rounded-3xl border border-white/10 bg-white/5 p-5">
+              <div class="flex items-center justify-between">
+                <h2 class="text-lg font-semibold">Recent sightings</h2>
+                <div class="text-xs text-slate-300" id="carouselMeta">—</div>
+              </div>
+
+              <!-- Carousel -->
+              <div
+                class="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/40"
+              >
+                <div id="carousel" class="relative h-72 sm:h-80">
+                  <!-- Slides injected -->
+                </div>
+
+                <div class="flex items-center justify-between px-3 py-3">
+                  <button
+                    id="prevBtn"
+                    class="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    ← Prev
+                  </button>
+
+                  <div id="dots" class="flex gap-2"></div>
+
+                  <button
+                    id="nextBtn"
+                    class="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+
+              <div class="mt-4 text-sm text-slate-300">
+                Want more? Head to
+                <span class="text-slate-100">Sightings & Updates</span> for the
+                full timeline.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- MEET THE FERALS -->
+      <section id="tab-ferals" class="tab-panel hidden">
+        <div class="flex items-end justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-semibold tracking-tight">
+              Meet the Ferals
+            </h2>
+            <p class="mt-2 text-slate-300">
+              A roster of regulars (and occasional visitors).
+            </p>
+          </div>
+
+          <input
+            id="feralSearch"
+            type="search"
+            placeholder="Search cats..."
+            class="w-56 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-emerald-400/60"
+          />
+        </div>
+
+        <div
+          id="feralsGrid"
+          class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          <!-- Cards injected -->
+        </div>
+      </section>
+
+      <!-- SIGHTINGS & UPDATES -->
+      <section id="tab-updates" class="tab-panel hidden">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-semibold tracking-tight">
+              Sightings & Updates
+            </h2>
+            <p class="mt-2 text-slate-300">
+              The running log: sightings, interactions, and new arrivals.
+            </p>
+          </div>
+
+          <div class="flex gap-2">
+            <select
+              id="feedFilter"
+              class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm"
+            >
+              <option value="all">All</option>
+              <option value="sightings">Sightings</option>
+              <option value="interactions">Interactions</option>
+              <option value="newArrivals">New arrivals</option>
+            </select>
+
+            <select
+              id="catFilter"
+              class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm"
+            >
+              <option value="all">All cats</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="timeline" class="mt-6 grid gap-4">
+          <!-- Timeline cards injected -->
+        </div>
+      </section>
+
+      <!-- ABOUT -->
+      <section id="tab-about" class="tab-panel hidden">
+        <h2 class="text-2xl font-semibold tracking-tight">About</h2>
+        <div
+          class="mt-4 grid gap-4 rounded-2xl border border-white/10 bg-white/5 p-6 text-slate-300"
+        >
+          <p>
+            This site is hosted on GitHub Pages. Updates come from a public
+            Google Sheet (via an Apps Script JSON endpoint), so we can log
+            sightings quickly without redeploying the site.
+          </p>
+          <p class="text-sm text-slate-400">
+            (If you’re building something similar: keep it public, avoid private
+            data, and remember SMS-style logs are best kept short and factual.)
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t border-white/10 bg-slate-950/70">
+      <div
+        class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-sm text-slate-400"
+      >
+        <div>
+          © <span id="year"></span> <span id="siteName3">Top Hat Ferals</span>
+        </div>
+        <div class="text-xs">Built with GitHub Pages + Google Sheets</div>
+      </div>
+    </footer>
+
+    <script>
+      // ---------- CONFIG ----------
+      const CONFIG = {
+        siteName: "Top Hat Ferals",
+        // Replace with your Apps Script URL (must include ?key=... if you used the simple gate)
+        apiUrl:
+          "https://script.googleusercontent.com/macros/echo?user_content_key=AehSKLhQuimt5SVWy57g9pl6pa22fQsQJWIy0Zv1nj4T-dR5yEguyJWdMEhVxdfZr2RkGsyAeyEbfbneTxf2mn83MAb7eXGLrYyZCwcviDe1dxlVl9LivCOBGqcXnLw-APsq3JQdxYM1xbobYoBxDDxz8FykxTgrz-bCImFL0BCDXaQeIk9_sUrP6BAG9dDUfT5sMhys5kSakdSCNVV-azipo6eu9U5S01s2N41l1Iphb5qnL5eAn_1aB30_ONYhL6QzUjWbMjQh73_4fP_gGT-M3HTvU9HaPU1Ot7AgAao1dm5Q--c5zbzASirgczK5ig&lib=MyL0DKB6V1UEt2XDowKAelM1As_v2T-Yj",
+        carouselCount: 6,
+        timelineCount: 50,
+      };
+
+      // ---------- UI helpers ----------
+      const $ = (sel) => document.querySelector(sel);
+      const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+      function setStatus(msg, type = "info") {
+        const el = $("#status");
+        el.classList.remove("hidden");
+        el.textContent = msg;
+        el.className =
+          "mb-6 rounded-2xl border p-4 text-sm " +
+          (type === "error"
+            ? "border-rose-400/30 bg-rose-500/10 text-rose-100"
+            : "border-white/10 bg-white/5 text-slate-200");
+      }
+
+      function clearStatus() {
+        const el = $("#status");
+        el.classList.add("hidden");
+        el.textContent = "";
+      }
+
+      function safeText(v) {
+        return (v ?? "").toString().trim();
+      }
+
+      function normalizeDate(v) {
+        const s = safeText(v);
+        // accept YYYY-MM-DD or anything parseable
+        const d = new Date(s);
+        if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+        return s;
+      }
+
+      function toCardHTML(item, badge) {
+        const date = normalizeDate(item.date);
+        const cat = safeText(item.cat || item.nickname || "Unknown");
+        const note = safeText(item.note || item.description || "");
+        const location = safeText(item.location || "");
+        const withWhom = safeText(item.with || "");
+        const photo = safeText(item.photo || "");
+
+        return `
+        <article class="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="rounded-full border border-white/10 bg-black/30 px-2 py-0.5 text-xs text-slate-200">${badge}</span>
+                <span class="text-xs text-slate-400">${date || "—"}</span>
+              </div>
+              <h3 class="mt-2 text-base font-semibold text-slate-50">${cat}</h3>
+              <p class="mt-1 text-sm text-slate-300">${note}</p>
+              <div class="mt-2 text-xs text-slate-400">
+                ${location ? `📍 ${location}` : ""}
+                ${withWhom ? `${location ? " · " : ""}🤝 ${withWhom}` : ""}
+              </div>
+            </div>
+            ${
+              photo
+                ? `
+              <a href="${photo}" target="_blank" rel="noopener" class="shrink-0">
+                <img src="${photo}" alt="" class="h-20 w-20 rounded-xl object-cover border border-white/10 bg-slate-900/40" loading="lazy">
+              </a>
+            `
+                : ""
+            }
+          </div>
+        </article>
+      `;
+      }
+
+      // ---------- Tabs ----------
+      function setActiveTab(tab) {
+        $$(".tab-panel").forEach((p) => p.classList.add("hidden"));
+        $("#tab-" + tab).classList.remove("hidden");
+
+        $$(".tab-btn").forEach((b) => {
+          const isActive = b.dataset.tab === tab;
+          b.className =
+            "tab-btn inline-flex items-center rounded-xl px-3 py-2 text-sm border " +
+            (isActive
+              ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
+              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10");
+        });
+
+        // close mobile nav
+        $("#mobileNav").classList.add("hidden");
+      }
+
+      // ---------- Carousel ----------
+      let slides = [];
+      let current = 0;
+      let autoTimer = null;
+
+      function renderCarousel() {
+        const wrap = $("#carousel");
+        const dots = $("#dots");
+        wrap.innerHTML = "";
+        dots.innerHTML = "";
+
+        if (!slides.length) {
+          wrap.innerHTML = `<div class="grid h-full place-items-center text-slate-400">No sightings yet.</div>`;
+          $("#carouselMeta").textContent = "0 items";
+          return;
+        }
+
+        slides.forEach((s, idx) => {
+          const photo = safeText(s.photo || "");
+          const cat = safeText(s.cat || "Unknown");
+          const date = normalizeDate(s.date);
+          const note = safeText(s.note || "");
+          const location = safeText(s.location || "");
+
+          const slide = document.createElement("div");
+          slide.className =
+            "absolute inset-0 transition-opacity duration-300 " +
+            (idx === current ? "opacity-100" : "opacity-0 pointer-events-none");
+          slide.innerHTML = `
+          <div class="relative h-full w-full">
+            ${
+              photo
+                ? `<img src="${photo}" class="h-full w-full object-cover" alt="" loading="lazy">`
+                : `<div class="grid h-full place-items-center bg-slate-900 text-slate-400">No photo</div>`
+            }
+            <div class="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent"></div>
+            <div class="absolute bottom-0 left-0 right-0 p-4">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="rounded-full border border-white/10 bg-black/40 px-2 py-0.5 text-xs text-slate-200">${date || "—"}</span>
+                ${location ? `<span class="rounded-full border border-white/10 bg-black/40 px-2 py-0.5 text-xs text-slate-200">📍 ${location}</span>` : ""}
+              </div>
+              <div class="mt-2 text-lg font-semibold">${cat}</div>
+              <div class="mt-1 text-sm text-slate-200/90 line-clamp-2">${note}</div>
+            </div>
+          </div>
+        `;
+          wrap.appendChild(slide);
+
+          const dot = document.createElement("button");
+          dot.className =
+            "h-2.5 w-2.5 rounded-full border border-white/20 " +
+            (idx === current ? "bg-emerald-300/80" : "bg-white/10");
+          dot.title = `Slide ${idx + 1}`;
+          dot.addEventListener("click", () => {
+            current = idx;
+            renderCarousel();
+            restartAuto();
+          });
+          dots.appendChild(dot);
+        });
+
+        $("#carouselMeta").textContent = `${current + 1} / ${slides.length}`;
+      }
+
+      function nextSlide(dir = 1) {
+        if (!slides.length) return;
+        current = (current + dir + slides.length) % slides.length;
+        renderCarousel();
+      }
+
+      function restartAuto() {
+        if (autoTimer) clearInterval(autoTimer);
+        autoTimer = setInterval(() => nextSlide(1), 6000);
+      }
+
+      // ---------- Data rendering ----------
+      let DATA = {
+        sightings: [],
+        interactions: [],
+        newArrivals: [],
+        updated: "",
+      };
+
+      function renderFerals() {
+        const grid = $("#feralsGrid");
+        const q = safeText($("#feralSearch").value).toLowerCase();
+
+        // Build feral list from sightings/newArrivals (simple heuristic)
+        const cats = new Map();
+
+        function addCat(name, photo, note) {
+          const key = safeText(name);
+          if (!key) return;
+          if (!cats.has(key))
+            cats.set(key, {
+              name: key,
+              photo: safeText(photo),
+              note: safeText(note),
+            });
+          // prefer a photo if one appears later
+          const existing = cats.get(key);
+          if (!existing.photo && photo) existing.photo = safeText(photo);
+          if (!existing.note && note) existing.note = safeText(note);
+        }
+
+        DATA.newArrivals.forEach((n) =>
+          addCat(n.nickname, n.photo, n.description),
+        );
+        DATA.sightings.forEach((s) => addCat(s.cat, s.photo, s.note));
+
+        const list = Array.from(cats.values())
+          .filter((c) => !q || c.name.toLowerCase().includes(q))
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+        grid.innerHTML = list.length
+          ? list
+              .map(
+                (c) => `
+        <article class="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div class="flex items-center gap-3">
+            <div class="h-14 w-14 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40 shrink-0">
+              ${c.photo ? `<img src="${c.photo}" class="h-full w-full object-cover" alt="" loading="lazy">` : `<div class="grid h-full place-items-center text-slate-500">🐾</div>`}
+            </div>
+            <div>
+              <div class="text-base font-semibold">${c.name}</div>
+              <div class="text-xs text-slate-400 line-clamp-2">${c.note || "Regular visitor."}</div>
+            </div>
+          </div>
+        </article>
+      `,
+              )
+              .join("")
+          : `<div class="text-slate-400">No matches.</div>`;
+
+        // Populate cat filter for timeline
+        const catFilter = $("#catFilter");
+        const currentVal = catFilter.value;
+        const options = [
+          "all",
+          ...Array.from(cats.keys()).sort((a, b) => a.localeCompare(b)),
+        ];
+        catFilter.innerHTML = options
+          .map(
+            (v) =>
+              `<option value="${v}">${v === "all" ? "All cats" : v}</option>`,
+          )
+          .join("");
+        if (options.includes(currentVal)) catFilter.value = currentVal;
+      }
+
+      function buildTimelineItems() {
+        const feed = $("#feedFilter").value;
+        const cat = $("#catFilter").value;
+
+        const items = [];
+        const pushAll = (arr, badge) =>
+          arr.forEach((x) => items.push({ badge, ...x }));
+
+        if (feed === "all" || feed === "sightings")
+          pushAll(DATA.sightings, "Sighting");
+        if (feed === "all" || feed === "interactions")
+          pushAll(DATA.interactions, "Interaction");
+        if (feed === "all" || feed === "newArrivals")
+          pushAll(DATA.newArrivals, "New arrival");
+
+        const filtered = items.filter((i) => {
+          if (cat === "all") return true;
+          const name = safeText(i.cat || i.nickname);
+          return name === cat;
+        });
+
+        // sort by date desc (string compare works for YYYY-MM-DD)
+        filtered.sort((a, b) =>
+          safeText(b.date).localeCompare(safeText(a.date)),
+        );
+        return filtered.slice(0, CONFIG.timelineCount);
+      }
+
+      function renderTimeline() {
+        const list = buildTimelineItems();
+        const el = $("#timeline");
+        el.innerHTML = list.length
+          ? list.map((i) => toCardHTML(i, i.badge)).join("")
+          : `<div class="text-slate-400">No items yet.</div>`;
+      }
+
+      // ---------- Fetch ----------
+      async function loadData() {
+        if (!CONFIG.apiUrl || CONFIG.apiUrl.includes("PASTE_")) {
+          setStatus(
+            "Set CONFIG.apiUrl in index.html to your Apps Script web app URL.",
+            "error",
+          );
+          return;
+        }
+
+        setStatus("Loading latest updates…");
+        try {
+          const res = await fetch(CONFIG.apiUrl, { cache: "no-store" });
+          const json = await res.json();
+
+          if (json.error) throw new Error(json.error);
+
+          DATA = {
+            updated: json.updated || "",
+            sightings: Array.isArray(json.sightings) ? json.sightings : [],
+            interactions: Array.isArray(json.interactions)
+              ? json.interactions
+              : [],
+            newArrivals: Array.isArray(json.newArrivals)
+              ? json.newArrivals
+              : [],
+          };
+
+          $("#lastUpdated").textContent = DATA.updated
+            ? new Date(DATA.updated).toLocaleString()
+            : "—";
+
+          // Carousel uses sightings w/ newest first
+          slides = [...DATA.sightings]
+            .sort((a, b) => safeText(b.date).localeCompare(safeText(a.date)))
+            .slice(0, CONFIG.carouselCount);
+
+          current = 0;
+          renderCarousel();
+          restartAuto();
+
+          renderFerals();
+          renderTimeline();
+
+          clearStatus();
+        } catch (err) {
+          console.error(err);
+          setStatus(
+            "Could not load updates. Check your Apps Script URL and that it returns JSON. (" +
+              err.message +
+              ")",
+            "error",
+          );
+        }
+      }
+
+      // ---------- Boot ----------
+      function init() {
+        // Tailwind-ish tab button baseline
+        $$(".tab-btn").forEach((b) => {
+          b.className =
+            "tab-btn inline-flex items-center rounded-xl px-3 py-2 text-sm border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10";
+          b.addEventListener("click", () => setActiveTab(b.dataset.tab));
+        });
+
+        $("#menuBtn").addEventListener("click", () =>
+          $("#mobileNav").classList.toggle("hidden"),
+        );
+
+        $("#prevBtn").addEventListener("click", () => {
+          nextSlide(-1);
+          restartAuto();
+        });
+        $("#nextBtn").addEventListener("click", () => {
+          nextSlide(1);
+          restartAuto();
+        });
+
+        $("#feralSearch").addEventListener("input", renderFerals);
+        $("#feedFilter").addEventListener("change", renderTimeline);
+        $("#catFilter").addEventListener("change", renderTimeline);
+
+        $("#year").textContent = new Date().getFullYear();
+
+        // Site name
+        $("#siteName").textContent = CONFIG.siteName;
+        $("#siteName2").textContent = CONFIG.siteName;
+        $("#siteName3").textContent = CONFIG.siteName;
+
+        setActiveTab("home");
+        loadData();
+      }
+
+      init();
+    </script>
+  </body>
+</html>
