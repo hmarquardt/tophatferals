@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Top Hat Ferals</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .tab-active { border-bottom: 2px solid #6366f1; color: #6366f1; }
+    .tab-inactive { border-bottom: 2px solid transparent; color: #6b7280; }
+    .tab-inactive:hover { color: #4b5563; border-bottom-color: #d1d5db; }
+    .card { transition: transform 0.2s, box-shadow 0.2s; }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .badge { display: inline-block; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
+    .badge-sighting { background: #dbeafe; color: #1e40af; }
+    .badge-interaction { background: #dcfce7; color: #166534; }
+    .badge-new { background: #fef3c7; color: #92400e; }
+    .loading { display: inline-block; width: 1rem; height: 1rem; border: 2px solid #f3f3f3; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="app" class="max-w-6xl mx-auto px-4 py-8">
+    <header class="text-center mb-8">
+      <h1 class="text-4xl font-bold text-gray-800 mb-2">🐱 Top Hat Ferals</h1>
+      <p class="text-gray-600">Community Cat Observation Log</p>
+    </header>
+
+    <nav class="flex border-b border-gray-200 mb-8 justify-center">
+      <button data-tab="feed" class="tab-btn px-6 py-3 font-medium tab-active">Home / Feed</button>
+      <button data-tab="cats" class="tab-btn px-6 py-3 font-medium tab-inactive">Cats</button>
+      <button data-tab="admin" class="tab-btn px-6 py-3 font-medium tab-inactive">Admin</button>
+      <button data-tab="about" class="tab-btn px-6 py-3 font-medium tab-inactive">About</button>
+    </nav>
+
+    <main id="main-content">
+      <div id="feed-view"></div>
+      <div id="cats-view" class="hidden"></div>
+      <div id="admin-view" class="hidden"></div>
+      <div id="about-view" class="hidden"></div>
+    </main>
+
+    <footer class="text-center text-gray-500 text-sm mt-12 pt-8 border-t border-gray-200">
+      <p>Powered by GitHub Pages + LabBox</p>
+    </footer>
+  </div>
+
+  <script>
+    const CONFIG = {
+      siteName: "Top Hat Ferals",
+      apiBase: "https://labs.smallbizguru.com/api",
+      appId: "top-hat-ferals",
+      resources: {
+        cats: "cats",
+        sightings: "sightings",
+        interactions: "interactions"
+      },
+      tokenStorageKey: "thf_labbox_bearer_token",
+      timelineCount: 75
+    };
+
+    const DATA = {
+      cats: [],
+      sightings: [],
+      interactions: [],
+      updated: ""
+    };
+
+    function safeText(value) {
+      if (value == null) return "";
+      const str = String(value);
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    function normalizeDate(value) {
+      if (!value) return null;
+      if (value instanceof Date) return value.toISOString().split("T")[0];
+      const d = new Date(value);
+      return isNaN(d.getTime()) ? String(value) : d.toISOString().split("T")[0];
+    }
+
+    function unwrapLabBoxRecord(record) {
+      if (!record) return null;
+      if (record.data) return record;
+      return { id: record.id, data: record, created_at: record.created_at, updated_at: record.updated_at };
+    }
+
+    function normalizeCat(record) {
+      const r = unwrapLabBoxRecord(record);
+      if (!r) return null;
+      const d = r.data || {};
+      return {
+        id: r.id,
+        name: d.name || d.nickname || "Unnamed Cat",
+        nickname: d.nickname,
+        status: d.status || "unknown",
+        description: d.description || d.notes || "",
+        notes: d.notes,
+        photo_url: d.photo_url || d.photo || d.image,
+        first_seen: normalizeDate(d.first_seen),
+        last_seen: normalizeDate(d.last_seen),
+        color: d.color,
+        markings: d.markings,
+        temperament: d.temperament,
+        tags: Array.isArray(d.tags) ? d.tags : (d.tags ? [d.tags] : []),
+        created_at: r.created_at,
+        updated_at: r.updated_at
+      };
+    }
+
+    function normalizeSighting(record) {
+      const r = unwrapLabBoxRecord(record);
+      if (!r) return null;
+      const d = r.data || {};
+      return {
+        id: r.id,
+        cat: d.cat || d.cat_name || d.cat_id || "Unknown Cat",
+        cat_name: d.cat_name || d.cat,
+        cat_id: d.cat_id,
+        date: normalizeDate(d.date),
+        time: d.time,
+        location: d.location || "",
+        note: d.note || d.notes || d.description || "",
+        notes: d.notes,
+        description: d.description,
+        photo_url: d.photo_url || d.photo || d.image,
+        confidence: d.confidence,
+        source: d.source,
+        tags: Array.isArray(d.tags) ? d.tags : (d.tags ? [d.tags] : []),
+        created_at: r.created_at,
+        updated_at: r.updated_at
+      };
+    }
+
+    function normalizeInteraction(record) {
+      const r = unwrapLabBoxRecord(record);
+      if (!r) return null;
+      const d = r.data || {};
+      return {
+        id: r.id,
+        cat: d.cat || d.cat_name || d.cat_id || "Unknown Cat",
+        cat_name: d.cat_name || d.cat,
+        cat_id: d.cat_id,
+        date: normalizeDate(d.date),
+        type: d.type || "observation",
+        location: d.location || "",
+        with: d.with,
+        note: d.note || d.notes || d.description || "",
+        notes: d.notes,
+        description: d.description,
+        photo_url: d.photo_url || d.photo || d.image,
+        tags: Array.isArray(d.tags) ? d.tags : (d.tags ? [d.tags] : []),
+        created_at: r.created_at,
+        updated_at: r.updated_at
+      };
+    }
+
+    async function fetchResource(resourceName) {
+      const url = `${CONFIG.apiBase}/${CONFIG.appId}/${resourceName}`;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        let items = [];
+        if (Array.isArray(json)) {
+          items = json;
+        } else if (json.records && Array.isArray(json.records)) {
+          items = json.records;
+        } else if (json.items && Array.isArray(json.items)) {
+          items = json.items;
+        } else if (json.data && Array.isArray(json.data)) {
+          items = json.data;
+        }
+        return items;
+      } catch (e) {
+        console.error(`Failed to fetch ${resourceName}:`, e);
+        return [];
+      }
+    }
+
+    async function createRecord(resourceName, data) {
+      const url = `${CONFIG.apiBase}/${CONFIG.appId}/${resourceName}`;
+      const token = getBearerToken();
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ data })
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`HTTP ${res.status}: ${errText}`);
+      }
+      return await res.json();
+    }
+
+    async function uploadRecordFile(resourceName, recordId, file) {
+      const url = `${CONFIG.apiBase}/${CONFIG.appId}/${resourceName}/${recordId}/files`;
+      const token = getBearerToken();
+      const formData = new FormData();
+      formData.append("file", file);
+      const headers = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(url, { method: "POST", headers, body: formData });
+      if (!res.ok) throw new Error(`File upload HTTP ${res.status}`);
+      return await res.json();
+    }
+
+    function getBearerToken() {
+      return localStorage.getItem(CONFIG.tokenStorageKey) || "";
+    }
+
+    function saveBearerToken(token) {
+      localStorage.setItem(CONFIG.tokenStorageKey, token);
+    }
+
+    function clearBearerToken() {
+      localStorage.removeItem(CONFIG.tokenStorageKey);
+    }
+
+    async function loadAllData() {
+      const results = await Promise.allSettled([
+        fetchResource(CONFIG.resources.cats),
+        fetchResource(CONFIG.resources.sightings),
+        fetchResource(CONFIG.resources.interactions)
+      ]);
+      DATA.cats = results[0].value.map(normalizeCat).filter(Boolean);
+      DATA.sightings = results[1].value.map(normalizeSighting).filter(Boolean);
+      DATA.interactions = results[2].value.map(normalizeInteraction).filter(Boolean);
+      DATA.updated = new Date().toLocaleString();
+    }
+
+    function parseTags(tagString) {
+      if (!tagString) return [];
+      return tagString.split(",").map(t => t.trim()).filter(t => t);
+    }
+
+    let currentTab = "feed";
+    let feedFilter = "all";
+    let catsSearch = "";
+    let catsStatusFilter = "all";
+
+    function switchTab(tabName) {
+      currentTab = tabName;
+      document.querySelectorAll(".tab-btn").forEach(btn => {
+        btn.classList.remove("tab-active");
+        btn.classList.add("tab-inactive");
+        if (btn.dataset.tab === tabName) {
+          btn.classList.add("tab-active");
+          btn.classList.remove("tab-inactive");
+        }
+      });
+      document.querySelectorAll("[id$='-view']").forEach(el => el.classList.add("hidden"));
+      document.getElementById(`${tabName}-view`).classList.remove("hidden");
+      renderCurrentTab();
+    }
+
+    function renderCurrentTab() {
+      switch (currentTab) {
+        case "feed": renderFeed(); break;
+        case "cats": renderCats(); break;
+        case "admin": renderAdmin(); break;
+        case "about": renderAbout(); break;
+      }
+    }
+
+    function renderFeed() {
+      const el = document.getElementById("feed-view");
+      let items = [];
+      DATA.sightings.forEach(s => items.push({ ...s, _type: "sighting" }));
+      DATA.interactions.forEach(i => items.push({ ...i, _type: "interaction" }));
+      items.sort((a, b) => {
+        const dateA = new Date(a.date || a.created_at || 0);
+        const dateB = new Date(b.date || b.created_at || 0);
+        return dateB - dateA;
+      });
+      items = items.slice(0, CONFIG.timelineCount);
+      let filtered = items;
+      if (feedFilter === "sightings") filtered = items.filter(i => i._type === "sighting");
+      else if (feedFilter === "interactions") filtered = items.filter(i => i._type === "interaction");
+      else if (feedFilter === "new-arrivals") filtered = items.filter(i => i.tags && i.tags.some(t => t.toLowerCase().includes("new")));
+      else if (feedFilter === "has-photo") filtered = items.filter(i => i.photo_url);
+      const catNames = [...new Set(items.map(i => i.cat))].filter(Boolean).sort();
+      const catOptions = catNames.map(n => `<option value="${safeText(n)}">${safeText(n)}</option>`).join("");
+      el.innerHTML = `
+        <div class="mb-6 text-center">
+          <p class="text-gray-500 text-sm">Last updated: ${safeText(DATA.updated)}</p>
+        </div>
+        <div class="flex flex-wrap gap-2 mb-6 justify-center">
+          <button data-filter="all" class="filter-btn px-4 py-2 rounded-full text-sm ${feedFilter === 'all' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">All</button>
+          <button data-filter="sightings" class="filter-btn px-4 py-2 rounded-full text-sm ${feedFilter === 'sightings' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">Sightings</button>
+          <button data-filter="interactions" class="filter-btn px-4 py-2 rounded-full text-sm ${feedFilter === 'interactions' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">Interactions</button>
+          <button data-filter="new-arrivals" class="filter-btn px-4 py-2 rounded-full text-sm ${feedFilter === 'new-arrivals' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">New Arrivals</button>
+          <button data-filter="has-photo" class="filter-btn px-4 py-2 rounded-full text-sm ${feedFilter === 'has-photo' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">Has Photo</button>
+        </div>
+        ${catNames.length > 0 ? `
+        <div class="mb-6 text-center">
+          <select id="cat-filter" class="px-4 py-2 border border-gray-300 rounded-lg">
+            <option value="">All Cats</option>
+            ${catOptions}
+          </select>
+        </div>
+        ` : ""}
+        <div id="feed-items" class="grid gap-4 md:grid-cols-2 lg:grid-cols-3"></div>
+      `;
+      document.querySelectorAll(".filter-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          feedFilter = btn.dataset.filter;
+          renderFeed();
+        });
+      });
+      const catFilter = document.getElementById("cat-filter");
+      if (catFilter) {
+        catFilter.addEventListener("change", () => {
+          const selectedCat = catFilter.value;
+          renderFeedItems(selectedCat ? filtered.filter(i => i.cat === selectedCat) : filtered);
+        });
+      }
+      renderFeedItems(filtered);
+    }
+
+    function renderFeedItems(items) {
+      const container = document.getElementById("feed-items");
+      if (!container) return;
+      if (items.length === 0) {
+        container.innerHTML = '<p class="col-span-full text-center text-gray-500 py-8">No items to display</p>';
+        return;
+      }
+      container.innerHTML = items.map(item => {
+        const badgeClass = item._type === "sighting" ? "badge-sighting" : "badge-interaction";
+        const isNew = item.tags && item.tags.some(t => t.toLowerCase().includes("new"));
+        const newBadge = isNew ? '<span class="badge badge-new ml-2">New</span>' : "";
+        const photo = item.photo_url ? `<img src="${safeText(item.photo_url)}" alt="" loading="lazy" class="w-full h-48 object-cover rounded-lg mb-3">` : "";
+        const tags = item.tags && item.tags.length ? item.tags.map(t => `<span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs mr-1">${safeText(t)}</span>`).join("") : "";
+        return `
+          <div class="card bg-white rounded-xl p-4 shadow-sm">
+            ${photo}
+            <div class="flex items-start justify-between mb-2">
+              <span class="badge ${badgeClass}">${item._type === "sighting" ? "Sighting" : "Interaction"}</span>
+              ${newBadge}
+            </div>
+            <h3 class="font-semibold text-lg mb-1">${safeText(item.cat)}</h3>
+            <p class="text-gray-500 text-sm mb-2">${safeText(item.date || item.created_at?.split("T")[0])}</p>
+            ${item.location ? `<p class="text-gray-600 text-sm mb-2">📍 ${safeText(item.location)}</p>` : ""}
+            ${item.note ? `<p class="text-gray-700 text-sm mb-3">${safeText(item.note)}</p>` : ""}
+            ${item.type && item._type === "interaction" ? `<p class="text-gray-500 text-xs mb-2">Type: ${safeText(item.type)}</p>` : ""}
+            ${tags ? `<div class="flex flex-wrap">${tags}</div>` : ""}
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderCats() {
+      const el = document.getElementById("cats-view");
+      let cats = DATA.cats;
+      if (cats.length === 0 && (DATA.sightings.length > 0 || DATA.interactions.length > 0)) {
+        const catNames = [...new Set([...DATA.sightings.map(s => s.cat), ...DATA.interactions.map(i => i.cat)])].filter(Boolean);
+        cats = catNames.map(name => ({ id: name, name, status: "unknown", description: "", tags: [] }));
+      }
+      let filtered = cats;
+      if (catsSearch) {
+        const search = catsSearch.toLowerCase();
+        filtered = filtered.filter(c => c.name.toLowerCase().includes(search) || (c.nickname && c.nickname.toLowerCase().includes(search)));
+      }
+      if (catsStatusFilter !== "all") {
+        filtered = filtered.filter(c => c.status.toLowerCase() === catsStatusFilter);
+      }
+      const statuses = ["all", "active", "new", "missing", "adopted", "unknown"];
+      el.innerHTML = `
+        <div class="mb-6 flex flex-wrap gap-4 justify-center">
+          <input type="text" id="cats-search" placeholder="Search cats..." value="${safeText(catsSearch)}" class="px-4 py-2 border border-gray-300 rounded-lg w-full max-w-xs">
+          <select id="status-filter" class="px-4 py-2 border border-gray-300 rounded-lg">
+            ${statuses.map(s => `<option value="${s}" ${catsStatusFilter === s ? "selected" : ""}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join("")}
+          </select>
+        </div>
+        <div id="cats-grid" class="grid gap-4 md:grid-cols-2 lg:grid-cols-3"></div>
+      `;
+      document.getElementById("cats-search").addEventListener("input", e => {
+        catsSearch = e.target.value;
+        renderCats();
+      });
+      document.getElementById("status-filter").addEventListener("change", e => {
+        catsStatusFilter = e.target.value;
+        renderCats();
+      });
+      const grid = document.getElementById("cats-grid");
+      if (filtered.length === 0) {
+        grid.innerHTML = '<p class="col-span-full text-center text-gray-500 py-8">No cats found</p>';
+        return;
+      }
+      grid.innerHTML = filtered.map(cat => {
+        const photo = cat.photo_url ? `<img src="${safeText(cat.photo_url)}" alt="" loading="lazy" class="w-full h-48 object-cover rounded-lg mb-3">` : '<div class="w-full h-48 bg-gray-100 rounded-lg mb-3 flex items-center justify-center text-4xl">🐱</div>';
+        const statusColors = { active: "bg-green-100 text-green-800", new: "bg-yellow-100 text-yellow-800", missing: "bg-red-100 text-red-800", adopted: "bg-blue-100 text-blue-800", unknown: "bg-gray-100 text-gray-800" };
+        const statusColor = statusColors[cat.status?.toLowerCase()] || statusColors.unknown;
+        const tags = cat.tags && cat.tags.length ? cat.tags.map(t => `<span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs mr-1">${safeText(t)}</span>`).join("") : "";
+        return `
+          <div class="card bg-white rounded-xl p-4 shadow-sm">
+            ${photo}
+            <h3 class="font-semibold text-lg mb-1">${safeText(cat.name)}</h3>
+            ${cat.nickname ? `<p class="text-gray-500 text-sm mb-2">${safeText(cat.nickname)}</p>` : ""}
+            <span class="badge ${statusColor} mb-2">${safeText(cat.status)}</span>
+            ${cat.description ? `<p class="text-gray-700 text-sm mb-2">${safeText(cat.description)}</p>` : ""}
+            ${cat.last_seen ? `<p class="text-gray-500 text-xs mb-2">Last seen: ${safeText(cat.last_seen)}</p>` : ""}
+            ${tags ? `<div class="flex flex-wrap">${tags}</div>` : ""}
+          </div>
+        `;
+      }).join("");
+    }
+
+    let adminSection = "setup";
+    let tokenStatus = getBearerToken() ? "saved" : "none";
+
+    function renderAdmin() {
+      const el = document.getElementById("admin-view");
+      el.innerHTML = `
+        <div class="max-w-2xl mx-auto">
+          <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+            <p class="text-yellow-800 text-sm">⚠️ This admin panel requires a LabBox bearer token. The token is stored only in this browser's localStorage. Do not use this on a shared/public computer.</p>
+          </div>
+          <nav class="flex flex-wrap gap-2 mb-6 border-b border-gray-200 pb-4">
+            <button data-admin-section="setup" class="admin-nav px-4 py-2 rounded-lg text-sm ${adminSection === 'setup' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">1. Setup</button>
+            <button data-admin-section="cat" class="admin-nav px-4 py-2 rounded-lg text-sm ${adminSection === 'cat' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">2. Add Cat</button>
+            <button data-admin-section="sighting" class="admin-nav px-4 py-2 rounded-lg text-sm ${adminSection === 'sighting' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">3. Add Sighting</button>
+            <button data-admin-section="interaction" class="admin-nav px-4 py-2 rounded-lg text-sm ${adminSection === 'interaction' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">4. Add Interaction</button>
+            <button data-admin-section="debug" class="admin-nav px-4 py-2 rounded-lg text-sm ${adminSection === 'debug' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">5. Data Preview</button>
+          </nav>
+          <div id="admin-content"></div>
+        </div>
+      `;
+      document.querySelectorAll(".admin-nav").forEach(btn => {
+        btn.addEventListener("click", () => {
+          adminSection = btn.dataset.adminSection;
+          renderAdmin();
+        });
+      });
+      renderAdminContent();
+    }
+
+    function renderAdminContent() {
+      const el = document.getElementById("admin-content");
+      switch (adminSection) {
+        case "setup": renderAdminSetup(el); break;
+        case "cat": renderAdminCat(el); break;
+        case "sighting": renderAdminSighting(el); break;
+        case "interaction": renderAdminInteraction(el); break;
+        case "debug": renderAdminDebug(el); break;
+      }
+    }
+
+    function renderAdminSetup(el) {
+      const status = getBearerToken() ? "Token saved locally" : "No token saved";
+      el.innerHTML = `
+        <div class="bg-white rounded-xl p-6 shadow-sm">
+          <h2 class="text-xl font-semibold mb-4">Token Setup</h2>
+          <div class="mb-4">
+            <label class="block text-gray-700 mb-2">Bearer Token</label>
+            <input type="password" id="token-input" placeholder="Enter your LabBox bearer token" class="w-full px-4 py-2 border border-gray-300 rounded-lg mb-3">
+            <div class="flex flex-wrap gap-2">
+              <button id="save-token-btn" class="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600">Save Token</button>
+              <button id="clear-token-btn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Clear Token</button>
+              <button id="test-token-btn" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">Test Token</button>
+            </div>
+          </div>
+          <p id="token-status" class="text-gray-600">${status}</p>
+          <p id="token-message" class="mt-2 text-sm"></p>
+        </div>
+      `;
+      document.getElementById("save-token-btn").addEventListener("click", () => {
+        const token = document.getElementById("token-input").value.trim();
+        if (token) {
+          saveBearerToken(token);
+          document.getElementById("token-status").textContent = "Token saved locally";
+          document.getElementById("token-message").textContent = "";
+        }
+      });
+      document.getElementById("clear-token-btn").addEventListener("click", () => {
+        clearBearerToken();
+        document.getElementById("token-input").value = "";
+        document.getElementById("token-status").textContent = "No token saved";
+        document.getElementById("token-message").textContent = "";
+      });
+      document.getElementById("test-token-btn").addEventListener("click", async () => {
+        const token = getBearerToken();
+        if (!token) {
+          document.getElementById("token-message").textContent = "No token to test";
+          document.getElementById("token-message").className = "mt-2 text-sm text-red-600";
+          return;
+        }
+        document.getElementById("token-message").textContent = "Testing...";
+        document.getElementById("token-message").className = "mt-2 text-sm text-gray-600";
+        try {
+          const res = await fetch(`${CONFIG.apiBase}/${CONFIG.appId}/cats`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          });
+          document.getElementById("token-message").textContent = `Token test: HTTP ${res.status} ${res.ok ? "✓ Success" : "✗ Failed"}`;
+          document.getElementById("token-message").className = `mt-2 text-sm ${res.ok ? "text-green-600" : "text-red-600"}`;
+        } catch (e) {
+          document.getElementById("token-message").textContent = `Token test failed: ${e.message}`;
+          document.getElementById("token-message").className = "mt-2 text-sm text-red-600";
+        }
+      });
+    }
+
+    function renderAdminCat(el) {
+      el.innerHTML = `
+        <div class="bg-white rounded-xl p-6 shadow-sm">
+          <h2 class="text-xl font-semibold mb-4">Add Cat</h2>
+          <form id="cat-form" class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-gray-700 mb-1">Name</label>
+                <input type="text" name="name" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+              <div>
+                <label class="block text-gray-700 mb-1">Nickname</label>
+                <input type="text" name="nickname" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-gray-700 mb-1">Status</label>
+                <select name="status" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                  <option value="active">Active</option>
+                  <option value="new">New</option>
+                  <option value="missing">Missing</option>
+                  <option value="adopted">Adopted</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-gray-700 mb-1">Color</label>
+                <input type="text" name="color" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Description</label>
+              <textarea name="description" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></textarea>
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Notes</label>
+              <textarea name="notes" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-gray-700 mb-1">First Seen</label>
+                <input type="date" name="first_seen" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+              <div>
+                <label class="block text-gray-700 mb-1">Last Seen</label>
+                <input type="date" name="last_seen" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Markings</label>
+              <input type="text" name="markings" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Temperament</label>
+              <input type="text" name="temperament" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Photo URL</label>
+              <input type="text" name="photo_url" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Image File</label>
+              <input type="file" name="image_file" accept="image/*" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Tags (comma-separated)</label>
+              <input type="text" name="tags" placeholder="regular, feeding-station" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <button type="submit" class="w-full px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600">Add Cat</button>
+            <p id="cat-msg" class="text-center"></p>
+          </form>
+        </div>
+      `;
+      document.getElementById("cat-form").addEventListener("submit", async e => {
+        e.preventDefault();
+        const form = e.target;
+        const msgEl = document.getElementById("cat-msg");
+        msgEl.textContent = "Submitting...";
+        msgEl.className = "text-center text-gray-600";
+        const data = {
+          name: form.name.value || undefined,
+          nickname: form.nickname.value || undefined,
+          status: form.status.value,
+          description: form.description.value || undefined,
+          notes: form.notes.value || undefined,
+          first_seen: form.first_seen.value || undefined,
+          last_seen: form.last_seen.value || undefined,
+          color: form.color.value || undefined,
+          markings: form.markings.value || undefined,
+          temperament: form.temperament.value || undefined,
+          photo_url: form.photo_url.value || undefined,
+          tags: parseTags(form.tags.value)
+        };
+        Object.keys(data).forEach(k => data[k] === undefined && delete data[k]);
+        try {
+          const result = await createRecord(CONFIG.resources.cats, data);
+          const recordId = result.id || result?.records?.[0]?.id;
+          if (recordId && form.image_file.files[0]) {
+            try {
+              await uploadRecordFile(CONFIG.resources.cats, recordId, form.image_file.files[0]);
+            } catch (fileErr) {
+              msgEl.textContent = "Record saved, but image upload failed.";
+              msgEl.className = "text-center text-yellow-600";
+              await loadAllData();
+              renderAdmin();
+              return;
+            }
+          }
+          msgEl.textContent = "Cat added successfully!";
+          msgEl.className = "text-center text-green-600";
+          form.reset();
+          await loadAllData();
+          setTimeout(() => renderAdmin(), 1500);
+        } catch (err) {
+          msgEl.textContent = `Error: ${err.message}`;
+          msgEl.className = "text-center text-red-600";
+        }
+      });
+    }
+
+    function renderAdminSighting(el) {
+      const catOptions = DATA.cats.map(c => `<option value="${safeText(c.name)}">${safeText(c.name)}</option>`).join("");
+      el.innerHTML = `
+        <div class="bg-white rounded-xl p-6 shadow-sm">
+          <h2 class="text-xl font-semibold mb-4">Add Sighting</h2>
+          <form id="sighting-form" class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-gray-700 mb-1">Cat Name</label>
+                <input type="text" name="cat" list="cat-list-sighting" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                <datalist id="cat-list-sighting">${catOptions}</datalist>
+              </div>
+              <div>
+                <label class="block text-gray-700 mb-1">Date</label>
+                <input type="date" name="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-gray-700 mb-1">Time</label>
+                <input type="text" name="time" placeholder="e.g., dusk, morning" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+              <div>
+                <label class="block text-gray-700 mb-1">Location</label>
+                <input type="text" name="location" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Note</label>
+              <textarea name="note" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-gray-700 mb-1">Confidence</label>
+                <select name="confidence" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                  <option value="">Select...</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-gray-700 mb-1">Source</label>
+                <input type="text" name="source" value="admin" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Photo URL</label>
+              <input type="text" name="photo_url" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Image File</label>
+              <input type="file" name="image_file" accept="image/*" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Tags (comma-separated)</label>
+              <input type="text" name="tags" placeholder="evening, feeding" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <button type="submit" class="w-full px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600">Add Sighting</button>
+            <p id="sighting-msg" class="text-center"></p>
+          </form>
+        </div>
+      `;
+      document.getElementById("sighting-form").addEventListener("submit", async e => {
+        e.preventDefault();
+        const form = e.target;
+        const msgEl = document.getElementById("sighting-msg");
+        msgEl.textContent = "Submitting...";
+        msgEl.className = "text-center text-gray-600";
+        const data = {
+          cat: form.cat.value || undefined,
+          date: form.date.value || undefined,
+          time: form.time.value || undefined,
+          location: form.location.value || undefined,
+          note: form.note.value || undefined,
+          confidence: form.confidence.value || undefined,
+          source: form.source.value || undefined,
+          photo_url: form.photo_url.value || undefined,
+          tags: parseTags(form.tags.value)
+        };
+        Object.keys(data).forEach(k => data[k] === undefined && delete data[k]);
+        try {
+          const result = await createRecord(CONFIG.resources.sightings, data);
+          const recordId = result.id || result?.records?.[0]?.id;
+          if (recordId && form.image_file.files[0]) {
+            try {
+              await uploadRecordFile(CONFIG.resources.sightings, recordId, form.image_file.files[0]);
+            } catch (fileErr) {
+              msgEl.textContent = "Record saved, but image upload failed.";
+              msgEl.className = "text-center text-yellow-600";
+              await loadAllData();
+              renderAdmin();
+              return;
+            }
+          }
+          msgEl.textContent = "Sighting added successfully!";
+          msgEl.className = "text-center text-green-600";
+          form.reset();
+          form.source.value = "admin";
+          await loadAllData();
+          setTimeout(() => renderAdmin(), 1500);
+        } catch (err) {
+          msgEl.textContent = `Error: ${err.message}`;
+          msgEl.className = "text-center text-red-600";
+        }
+      });
+    }
+
+    function renderAdminInteraction(el) {
+      const catOptions = DATA.cats.map(c => `<option value="${safeText(c.name)}">${safeText(c.name)}</option>`).join("");
+      const interactionTypes = ["feeding", "trap-neuter-return", "medical", "socialization", "shelter", "adoption", "observation", "other"];
+      el.innerHTML = `
+        <div class="bg-white rounded-xl p-6 shadow-sm">
+          <h2 class="text-xl font-semibold mb-4">Add Interaction</h2>
+          <form id="interaction-form" class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-gray-700 mb-1">Cat Name</label>
+                <input type="text" name="cat" list="cat-list-interaction" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                <datalist id="cat-list-interaction">${catOptions}</datalist>
+              </div>
+              <div>
+                <label class="block text-gray-700 mb-1">Date</label>
+                <input type="date" name="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-gray-700 mb-1">Type</label>
+                <select name="type" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                  ${interactionTypes.map(t => `<option value="${t}">${t}</option>`).join("")}
+                </select>
+              </div>
+              <div>
+                <label class="block text-gray-700 mb-1">Location</label>
+                <input type="text" name="location" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">With</label>
+              <input type="text" name="with" placeholder="Who was involved" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Note</label>
+              <textarea name="note" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></textarea>
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Photo URL</label>
+              <input type="text" name="photo_url" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Image File</label>
+              <input type="file" name="image_file" accept="image/*" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-gray-700 mb-1">Tags (comma-separated)</label>
+              <input type="text" name="tags" placeholder="feeding, progress" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <button type="submit" class="w-full px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600">Add Interaction</button>
+            <p id="interaction-msg" class="text-center"></p>
+          </form>
+        </div>
+      `;
+      document.getElementById("interaction-form").addEventListener("submit", async e => {
+        e.preventDefault();
+        const form = e.target;
+        const msgEl = document.getElementById("interaction-msg");
+        msgEl.textContent = "Submitting...";
+        msgEl.className = "text-center text-gray-600";
+        const data = {
+          cat: form.cat.value || undefined,
+          date: form.date.value || undefined,
+          type: form.type.value,
+          location: form.location.value || undefined,
+          with: form.with.value || undefined,
+          note: form.note.value || undefined,
+          photo_url: form.photo_url.value || undefined,
+          tags: parseTags(form.tags.value)
+        };
+        Object.keys(data).forEach(k => data[k] === undefined && delete data[k]);
+        try {
+          const result = await createRecord(CONFIG.resources.interactions, data);
+          const recordId = result.id || result?.records?.[0]?.id;
+          if (recordId && form.image_file.files[0]) {
+            try {
+              await uploadRecordFile(CONFIG.resources.interactions, recordId, form.image_file.files[0]);
+            } catch (fileErr) {
+              msgEl.textContent = "Record saved, but image upload failed.";
+              msgEl.className = "text-center text-yellow-600";
+              await loadAllData();
+              renderAdmin();
+              return;
+            }
+          }
+          msgEl.textContent = "Interaction added successfully!";
+          msgEl.className = "text-center text-green-600";
+          form.reset();
+          await loadAllData();
+          setTimeout(() => renderAdmin(), 1500);
+        } catch (err) {
+          msgEl.textContent = `Error: ${err.message}`;
+          msgEl.className = "text-center text-red-600";
+        }
+      });
+    }
+
+    function renderAdminDebug(el) {
+      el.innerHTML = `
+        <div class="bg-white rounded-xl p-6 shadow-sm">
+          <h2 class="text-xl font-semibold mb-4">Data Preview</h2>
+          <div class="mb-4">
+            <p class="text-gray-600 text-sm mb-2">Cats: ${DATA.cats.length}</p>
+            <p class="text-gray-600 text-sm mb-2">Sightings: ${DATA.sightings.length}</p>
+            <p class="text-gray-600 text-sm mb-4">Interactions: ${DATA.interactions.length}</p>
+            <button id="refresh-data-btn" class="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600">Refresh Data</button>
+          </div>
+          <div class="grid grid-cols-1 gap-4">
+            <details>
+              <summary class="cursor-pointer font-medium">View Cats Data</summary>
+              <pre class="mt-2 p-3 bg-gray-100 rounded-lg text-xs overflow-auto max-h-64">${safeText(JSON.stringify(DATA.cats, null, 2))}</pre>
+            </details>
+            <details>
+              <summary class="cursor-pointer font-medium">View Sightings Data</summary>
+              <pre class="mt-2 p-3 bg-gray-100 rounded-lg text-xs overflow-auto max-h-64">${safeText(JSON.stringify(DATA.sightings, null, 2))}</pre>
+            </details>
+            <details>
+              <summary class="cursor-pointer font-medium">View Interactions Data</summary>
+              <pre class="mt-2 p-3 bg-gray-100 rounded-lg text-xs overflow-auto max-h-64">${safeText(JSON.stringify(DATA.interactions, null, 2))}</pre>
+            </details>
+          </div>
+          <p id="debug-msg" class="mt-4 text-center"></p>
+        </div>
+      `;
+      document.getElementById("refresh-data-btn").addEventListener("click", async () => {
+        const msgEl = document.getElementById("debug-msg");
+        msgEl.textContent = "Loading...";
+        msgEl.className = "mt-4 text-center text-gray-600";
+        await loadAllData();
+        msgEl.textContent = "Data refreshed!";
+        msgEl.className = "mt-4 text-center text-green-600";
+        renderAdminContent();
+      });
+    }
+
+    function renderAbout() {
+      const el = document.getElementById("about-view");
+      el.innerHTML = `
+        <div class="max-w-2xl mx-auto bg-white rounded-xl p-8 shadow-sm">
+          <h2 class="text-2xl font-bold mb-4">About Top Hat Ferals</h2>
+          <p class="text-gray-700 mb-4">
+            Top Hat Ferals is an observational community log for tracking local cats in our area. This site is powered by GitHub Pages + LabBox, replacing our previous Google Sheets-based system.
+          </p>
+          <p class="text-gray-700 mb-4">
+            <strong>Important:</strong> This is an observational community log, not a rescue intake system or emergency contact system. If you find an injured or endangered animal, please contact local animal control or a licensed rescue organization.
+          </p>
+          <h3 class="text-xl font-semibold mb-2">What We Track</h3>
+          <ul class="list-disc list-inside text-gray-700 mb-4 space-y-1">
+            <li><strong>Cats</strong> - Individual cats we observe in the area</li>
+            <li><strong>Sightings</strong> - When and where we see cats</li>
+            <li><strong>Interactions</strong> - Our activities with cats (feeding, medical care, TNR, etc.)</li>
+          </ul>
+          <h3 class="text-xl font-semibold mb-2">How It Works</h3>
+          <p class="text-gray-700 mb-4">
+            Data is stored in LabBox and retrieved via their API. Anyone can view the public feed and cat listings. The Admin tab allows authorized individuals to add new records using a bearer token.
+          </p>
+          <h3 class="text-xl font-semibold mb-2">Contributing</h3>
+          <p class="text-gray-700">
+            If you'd like to help observe and document local cats, please reach out to the site administrator.
+          </p>
+        </div>
+      `;
+    }
+
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+    });
+
+    async function init() {
+      await loadAllData();
+      renderFeed();
+    }
+
+    init();
+  </script>
+</body>
+</html>
