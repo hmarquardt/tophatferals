@@ -246,7 +246,7 @@
     <script>
       const CONFIG = {
         siteName: "Top Hat Ferals",
-        apiBase: "https://labs.smallbizguru.com/api",
+        apiBase: "https://lab.aismallbizguru.com/api",
         appId: "top-hat-ferals",
         resources: {
           cats: "cats",
@@ -672,7 +672,10 @@
       }
 
       function renderAdminSetup(el) {
-        const tokenStatus = getBearerToken() ? "Token saved locally" : "No token saved";
+        const hasToken = !!getBearerToken();
+        const tokenStatusHtml = hasToken
+          ? `<span class="inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-sm text-emerald-300"><span class="h-2 w-2 rounded-full bg-emerald-400"></span>Token saved</span>`
+          : `<span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-400"><span class="h-2 w-2 rounded-full bg-slate-500"></span>No token</span>`;
         el.innerHTML = `
         <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
           <h2 class="text-xl font-semibold mb-4">Token Setup</h2>
@@ -685,7 +688,7 @@
               <button id="test-token-btn" class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Test Token</button>
             </div>
           </div>
-          <p id="token-status" class="text-slate-300">${tokenStatus}</p>
+          <div id="token-status" class="mb-2">${tokenStatusHtml}</div>
           <p id="token-message" class="mt-2 text-sm"></p>
         </div>
       `;
@@ -694,14 +697,14 @@
           const token = $("#token-input").value.trim();
           if (token) {
             saveBearerToken(token);
-            $("#token-status").textContent = "Token saved locally";
+            $("#token-status").innerHTML = `<span class="inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-sm text-emerald-300"><span class="h-2 w-2 rounded-full bg-emerald-400"></span>Token saved</span>`;
           }
         });
 
         $("#clear-token-btn").addEventListener("click", () => {
           clearBearerToken();
           $("#token-input").value = "";
-          $("#token-status").textContent = "No token saved";
+          $("#token-status").innerHTML = `<span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-400"><span class="h-2 w-2 rounded-full bg-slate-500"></span>No token</span>`;
           $("#token-message").textContent = "";
         });
 
