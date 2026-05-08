@@ -408,6 +408,15 @@
         return await res.json();
       }
 
+      function extractFileUrl(json) {
+        if (!json) return null;
+        if (json.url) return json.url;
+        if (json.download_url) return json.download_url;
+        if (json.file && json.file.url) return json.file.url;
+        if (json.file && json.file.download_url) return json.file.download_url;
+        return null;
+      }
+
       async function uploadRecordFile(resourceName, recordId, file) {
         const url = `${CONFIG.apiBase}/${CONFIG.appId}/${resourceName}/${recordId}/files`;
         const token = getBearerToken();
@@ -417,6 +426,20 @@
         if (token) headers["Authorization"] = `Bearer ${token}`;
         const res = await fetch(url, { method: "POST", headers, body: formData });
         if (!res.ok) throw new Error(`File upload HTTP ${res.status}`);
+        return await res.json();
+      }
+
+      async function updateRecordPhotoUrl(resourceName, recordId, photoUrl) {
+        const url = `${CONFIG.apiBase}/${CONFIG.appId}/${resourceName}/${recordId}`;
+        const token = getBearerToken();
+        const headers = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(url, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ data: { photo_url: photoUrl } })
+        });
+        if (!res.ok) throw new Error(`Update record HTTP ${res.status}`);
         return await res.json();
       }
 
@@ -819,6 +842,8 @@
           const msgEl = $("#cat-msg");
           msgEl.textContent = "Submitting…";
           msgEl.className = "text-center text-slate-300";
+          const file = form.image_file.files[0];
+          const photoUrlFromField = form.photo_url.value.trim() || null;
           const data = {
             name: form.name.value || undefined,
             nickname: form.nickname.value || undefined,
@@ -830,21 +855,26 @@
             color: form.color.value || undefined,
             markings: form.markings.value || undefined,
             temperament: form.temperament.value || undefined,
-            photo_url: form.photo_url.value || undefined,
+            photo_url: photoUrlFromField || undefined,
             tags: parseTags(form.tags.value)
           };
           Object.keys(data).forEach(k => data[k] === undefined && delete data[k]);
           try {
             const result = await createRecord(CONFIG.resources.cats, data);
             const recordId = result.id || result?.records?.[0]?.id;
-            if (recordId && form.image_file.files[0]) {
+            if (file && recordId) {
+              msgEl.textContent = "Uploading image…";
               try {
-                await uploadRecordFile(CONFIG.resources.cats, recordId, form.image_file.files[0]);
+                const uploadResult = await uploadRecordFile(CONFIG.resources.cats, recordId, file);
+                const uploadedUrl = extractFileUrl(uploadResult);
+                if (uploadedUrl) {
+                  await updateRecordPhotoUrl(CONFIG.resources.cats, recordId, uploadedUrl);
+                }
               } catch (fileErr) {
-                msgEl.textContent = "Record saved, but image upload failed.";
+                msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message;
                 msgEl.className = "text-center text-yellow-300";
                 await loadAllData();
-                renderAdmin();
+                setTimeout(() => renderAdmin(), 2000);
                 return;
               }
             }
@@ -930,6 +960,8 @@
           const msgEl = $("#sighting-msg");
           msgEl.textContent = "Submitting…";
           msgEl.className = "text-center text-slate-300";
+          const file = form.image_file.files[0];
+          const photoUrlFromField = form.photo_url.value.trim() || null;
           const data = {
             cat: form.cat.value || undefined,
             date: form.date.value || undefined,
@@ -938,21 +970,26 @@
             note: form.note.value || undefined,
             confidence: form.confidence.value || undefined,
             source: form.source.value || undefined,
-            photo_url: form.photo_url.value || undefined,
+            photo_url: photoUrlFromField || undefined,
             tags: parseTags(form.tags.value)
           };
           Object.keys(data).forEach(k => data[k] === undefined && delete data[k]);
           try {
             const result = await createRecord(CONFIG.resources.sightings, data);
             const recordId = result.id || result?.records?.[0]?.id;
-            if (recordId && form.image_file.files[0]) {
+            if (file && recordId) {
+              msgEl.textContent = "Uploading image…";
               try {
-                await uploadRecordFile(CONFIG.resources.sightings, recordId, form.image_file.files[0]);
+                const uploadResult = await uploadRecordFile(CONFIG.resources.sightings, recordId, file);
+                const uploadedUrl = extractFileUrl(uploadResult);
+                if (uploadedUrl) {
+                  await updateRecordPhotoUrl(CONFIG.resources.sightings, recordId, uploadedUrl);
+                }
               } catch (fileErr) {
-                msgEl.textContent = "Record saved, but image upload failed.";
+                msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message;
                 msgEl.className = "text-center text-yellow-300";
                 await loadAllData();
-                renderAdmin();
+                setTimeout(() => renderAdmin(), 2000);
                 return;
               }
             }
@@ -1031,6 +1068,8 @@
           const msgEl = $("#interaction-msg");
           msgEl.textContent = "Submitting…";
           msgEl.className = "text-center text-slate-300";
+          const file = form.image_file.files[0];
+          const photoUrlFromField = form.photo_url.value.trim() || null;
           const data = {
             cat: form.cat.value || undefined,
             date: form.date.value || undefined,
@@ -1038,21 +1077,26 @@
             location: form.location.value || undefined,
             with: form.with.value || undefined,
             note: form.note.value || undefined,
-            photo_url: form.photo_url.value || undefined,
+            photo_url: photoUrlFromField || undefined,
             tags: parseTags(form.tags.value)
           };
           Object.keys(data).forEach(k => data[k] === undefined && delete data[k]);
           try {
             const result = await createRecord(CONFIG.resources.interactions, data);
             const recordId = result.id || result?.records?.[0]?.id;
-            if (recordId && form.image_file.files[0]) {
+            if (file && recordId) {
+              msgEl.textContent = "Uploading image…";
               try {
-                await uploadRecordFile(CONFIG.resources.interactions, recordId, form.image_file.files[0]);
+                const uploadResult = await uploadRecordFile(CONFIG.resources.interactions, recordId, file);
+                const uploadedUrl = extractFileUrl(uploadResult);
+                if (uploadedUrl) {
+                  await updateRecordPhotoUrl(CONFIG.resources.interactions, recordId, uploadedUrl);
+                }
               } catch (fileErr) {
-                msgEl.textContent = "Record saved, but image upload failed.";
+                msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message;
                 msgEl.className = "text-center text-yellow-300";
                 await loadAllData();
-                renderAdmin();
+                setTimeout(() => renderAdmin(), 2000);
                 return;
               }
             }
