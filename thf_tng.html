@@ -492,10 +492,22 @@
         document.getElementById("token-message").className = "mt-2 text-sm text-gray-600";
         try {
           const res = await fetch(`${CONFIG.apiBase}/${CONFIG.appId}/cats`, {
-            headers: { "Authorization": `Bearer ${token}` }
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ data: { name: "__token_test__", status: "active" } })
           });
-          document.getElementById("token-message").textContent = `Token test: HTTP ${res.status} ${res.ok ? "✓ Success" : "✗ Failed"}`;
-          document.getElementById("token-message").className = `mt-2 text-sm ${res.ok ? "text-green-600" : "text-red-600"}`;
+          const status = res.status;
+          const isSuccess = res.ok;
+          if (isSuccess && (status === 200 || status === 201)) {
+            document.getElementById("token-message").textContent = `Token test: HTTP ${status} ✓ Success`;
+            document.getElementById("token-message").className = "mt-2 text-sm text-green-600";
+          } else {
+            document.getElementById("token-message").textContent = `Token test: HTTP ${status} ✗ Failed`;
+            document.getElementById("token-message").className = "mt-2 text-sm text-red-600";
+          }
         } catch (e) {
           document.getElementById("token-message").textContent = `Token test failed: ${e.message}`;
           document.getElementById("token-message").className = "mt-2 text-sm text-red-600";
