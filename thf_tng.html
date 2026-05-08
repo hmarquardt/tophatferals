@@ -414,6 +414,16 @@
         if (json.download_url) return json.download_url;
         if (json.file && json.file.url) return json.file.url;
         if (json.file && json.file.download_url) return json.file.download_url;
+        for (const key of Object.keys(json)) {
+          const val = json[key];
+          if (typeof val === "object" && val !== null) {
+            const url = extractFileUrl(val);
+            if (url) return url;
+          }
+          if (key.toLowerCase().includes("url") && typeof val === "string" && val.startsWith("http")) {
+            return val;
+          }
+        }
         return null;
       }
 
@@ -425,8 +435,15 @@
         const headers = {};
         if (token) headers["Authorization"] = `Bearer ${token}`;
         const res = await fetch(url, { method: "POST", headers, body: formData });
-        if (!res.ok) throw new Error(`File upload HTTP ${res.status}`);
-        return await res.json();
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          console.warn("File upload returned HTTP", res.status, json);
+          if (json.url || json.download_url || (json.file && json.file.url)) {
+            return json;
+          }
+          throw new Error(`File upload HTTP ${res.status}`);
+        }
+        return json;
       }
 
       async function updateRecordPhotoUrl(resourceName, recordId, photoUrl) {
@@ -864,18 +881,29 @@
             const recordId = result.id || result?.records?.[0]?.id;
             if (file && recordId) {
               msgEl.textContent = "Uploading image…";
+              let uploadSucceeded = false;
               try {
                 const uploadResult = await uploadRecordFile(CONFIG.resources.cats, recordId, file);
+                console.log("File upload result:", uploadResult);
                 const uploadedUrl = extractFileUrl(uploadResult);
+                console.log("Extracted URL:", uploadedUrl);
+                uploadSucceeded = true;
                 if (uploadedUrl) {
-                  await updateRecordPhotoUrl(CONFIG.resources.cats, recordId, uploadedUrl);
+                  try {
+                    await updateRecordPhotoUrl(CONFIG.resources.cats, recordId, uploadedUrl);
+                    console.log("photo_url PATCH succeeded");
+                  } catch (patchErr) {
+                    console.warn("photo_url PATCH failed (image still uploaded):", patchErr.message);
+                  }
                 }
               } catch (fileErr) {
-                msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message;
-                msgEl.className = "text-center text-yellow-300";
-                await loadAllData();
-                setTimeout(() => renderAdmin(), 2000);
-                return;
+                if (!uploadSucceeded) {
+                  msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message;
+                  msgEl.className = "text-center text-yellow-300";
+                  await loadAllData();
+                  setTimeout(() => renderAdmin(), 2000);
+                  return;
+                }
               }
             }
             msgEl.textContent = "Cat added successfully!";
