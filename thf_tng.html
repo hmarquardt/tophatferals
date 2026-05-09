@@ -1217,7 +1217,9 @@
         $("#year").textContent = new Date().getFullYear();
 
         setActiveTab("feed");
-        loadAllData();
+        loadAllData().then(() => {
+          renderCurrentTab();
+        });
       }
 
       init();
