@@ -134,14 +134,7 @@
           <input id="catsSearch" type="search" placeholder="Search cats..." class="w-56 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-emerald-400/60" />
         </div>
 
-        <div class="flex flex-wrap gap-2 mb-6">
-          <button data-status="all" class="status-filter-btn rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10">All</button>
-          <button data-status="active" class="status-filter-btn rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10">Active</button>
-          <button data-status="new" class="status-filter-btn rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10">New</button>
-          <button data-status="missing" class="status-filter-btn rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10">Missing</button>
-          <button data-status="adopted" class="status-filter-btn rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10">Adopted</button>
-          <button data-status="unknown" class="status-filter-btn rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10">Unknown</button>
-        </div>
+        
 
         <div id="cats-grid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"></div>
       </section>
@@ -153,13 +146,7 @@
             <p class="text-yellow-200 text-sm">⚠️ This admin panel requires a LabBox bearer token. The token is stored only in this browser's localStorage. Do not use this on a shared/public computer.</p>
           </div>
 
-          <nav class="flex flex-wrap gap-2 mb-6 border-b border-white/10 pb-4">
-            <button data-admin-section="setup" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">1. Setup</button>
-            <button data-admin-section="cat" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">2. Add Cat</button>
-            <button data-admin-section="sighting" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">3. Add Sighting</button>
-            <button data-admin-section="interaction" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">4. Add Interaction</button>
-            <button data-admin-section="debug" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">5. Data Preview</button>
-          </nav>
+          <nav id="admin-nav" class="flex flex-wrap gap-2 mb-6 border-b border-white/10 pb-4"></nav>
 
           <div id="admin-content"></div>
         </div>
@@ -259,7 +246,6 @@
       };
 
       const DATA = {
-        cats: [],
         sightings: [],
         interactions: [],
         updated: ""
@@ -271,7 +257,6 @@
       let currentTab = "feed";
       let feedFilter = "all";
       let catsSearch = "";
-      let catsStatusFilter = "all";
       let adminSection = "setup";
 
       const $ = sel => document.querySelector(sel);
@@ -480,13 +465,11 @@
       async function loadAllData() {
         setStatus("Loading latest updates…");
         const results = await Promise.allSettled([
-          fetchResource(CONFIG.resources.cats),
           fetchResource(CONFIG.resources.sightings),
           fetchResource(CONFIG.resources.interactions)
         ]);
-        DATA.cats = results[0].value.map(normalizeCat).filter(Boolean);
-        DATA.sightings = results[1].value.map(normalizeSighting).filter(Boolean);
-        DATA.interactions = results[2].value.map(normalizeInteraction).filter(Boolean);
+        DATA.sightings = results[0].value.map(normalizeSighting).filter(Boolean);
+        DATA.interactions = results[1].value.map(normalizeInteraction).filter(Boolean);
         DATA.updated = new Date().toLocaleString();
         clearStatus();
       }
@@ -648,20 +631,34 @@
         el.innerHTML = list.length ? list.map(i => toCardHTML(i, i._type === "sighting" ? "Sighting" : "Interaction")).join("") : `<div class="text-slate-400 text-center py-8">No items yet.</div>`;
       }
 
-      function renderCats() {
-        let cats = DATA.cats;
-        if (cats.length === 0 && (DATA.sightings.length > 0 || DATA.interactions.length > 0)) {
-          const catNames = [...new Set([...DATA.sightings.map(s => s.cat), ...DATA.interactions.map(i => i.cat)])].filter(Boolean);
-          cats = catNames.map(name => ({ id: name, name, status: "unknown", description: "", tags: [] }));
-        }
+      function buildCatList() {
+        const catMap = new Map();
+        const allItems = [...DATA.sightings, ...DATA.interactions];
+        allItems.forEach(item => {
+          const name = safeText(item.cat);
+          if (!name) return;
+          if (!catMap.has(name)) {
+            catMap.set(name, { name, photo_url: null, latestDate: null, note: "" });
+          }
+          const cat = catMap.get(name);
+          const itemDate = new Date(item.date || item.created_at || 0);
+          if (!cat.latestDate || itemDate > cat.latestDate) {
+            cat.latestDate = itemDate;
+            if (item.photo_url) cat.photo_url = item.photo_url;
+            if (item.note) cat.note = item.note;
+          }
+          if (!cat.photo_url && item.photo_url) cat.photo_url = item.photo_url;
+          if (!cat.note && item.note) cat.note = item.note;
+        });
+        return Array.from(catMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+      }
 
+      function renderCats() {
+        const cats = buildCatList();
         let filtered = cats;
         if (catsSearch) {
           const search = catsSearch.toLowerCase();
-          filtered = filtered.filter(c => c.name.toLowerCase().includes(search) || (c.nickname && c.nickname.toLowerCase().includes(search)));
-        }
-        if (catsStatusFilter !== "all") {
-          filtered = filtered.filter(c => c.status?.toLowerCase() === catsStatusFilter);
+          filtered = filtered.filter(c => c.name.toLowerCase().includes(search));
         }
 
         const grid = $("#cats-grid");
@@ -672,39 +669,46 @@
 
         grid.innerHTML = filtered.map(cat => {
           const photo = cat.photo_url;
-          const statusColors = {
-            active: "border-green-400/30 bg-green-400/10 text-green-100",
-            new: "border-yellow-400/30 bg-yellow-400/10 text-yellow-100",
-            missing: "border-rose-400/30 bg-rose-400/10 text-rose-100",
-            adopted: "border-blue-400/30 bg-blue-400/10 text-blue-100",
-            unknown: "border-white/10 bg-white/5 text-slate-300"
-          };
-          const statusColor = statusColors[cat.status?.toLowerCase()] || statusColors.unknown;
-
           return `
           <article class="rounded-2xl border border-white/10 bg-white/5 p-4">
             <div class="flex items-center gap-3">
               <div class="h-14 w-14 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40 shrink-0">
                 ${photo ? `<img src="${safeText(photo)}" class="h-full w-full object-cover" alt="" loading="lazy">` : `<div class="grid h-full place-items-center text-slate-500">🐾</div>`}
               </div>
-              <div>
-                <div class="text-base font-semibold">${safeText(cat.name)}</div>
-                ${cat.nickname ? `<div class="text-xs text-slate-400">${safeText(cat.nickname)}</div>` : ""}
-                <span class="inline-block mt-1 rounded-full border px-2 py-0.5 text-xs ${statusColor}">${safeText(cat.status)}</span>
-              </div>
+              <div class="text-base font-semibold">${safeText(cat.name)}</div>
             </div>
-            ${cat.description ? `<p class="mt-3 text-sm text-slate-300 line-clamp-2">${safeText(cat.description)}</p>` : ""}
-            ${cat.last_seen ? `<p class="mt-2 text-xs text-slate-400">Last seen: ${safeText(cat.last_seen)}</p>` : ""}
+            ${cat.note ? `<p class="mt-3 text-sm text-slate-300 line-clamp-2">${safeText(cat.note)}</p>` : ""}
           </article>
         `;
         }).join("");
       }
 
       function renderAdmin() {
+        const hasToken = !!getBearerToken();
+        if (!hasToken) adminSection = "setup";
+        const nav = $("#admin-nav");
+        if (hasToken) {
+          nav.innerHTML = `
+            <button data-admin-section="setup" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">1. Setup</button>
+            <button data-admin-section="sighting" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">2. Add Sighting</button>
+            <button data-admin-section="interaction" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">3. Add Interaction</button>
+            <button data-admin-section="debug" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">4. Data Preview</button>
+          `;
+        } else {
+          nav.innerHTML = `
+            <button data-admin-section="setup" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">1. Setup</button>
+          `;
+        }
+        $$(".admin-nav").forEach(btn => {
+          btn.className = "admin-nav rounded-xl px-4 py-2 text-sm border " + (btn.dataset.adminSection === adminSection ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10");
+          btn.addEventListener("click", () => {
+            adminSection = btn.dataset.adminSection;
+            renderAdmin();
+          });
+        });
         const el = $("#admin-content");
         switch (adminSection) {
           case "setup": renderAdminSetup(el); break;
-          case "cat": renderAdminCat(el); break;
           case "sighting": renderAdminSighting(el); break;
           case "interaction": renderAdminInteraction(el); break;
           case "debug": renderAdminDebug(el); break;
@@ -919,7 +923,7 @@
       }
 
       function renderAdminSighting(el) {
-        const catOptions = DATA.cats.map(c => `<option value="${safeText(c.name)}">${safeText(c.name)}</option>`).join("");
+        const catOptions = buildCatList().map(c => `<option value="${safeText(c.name)}">${safeText(c.name)}</option>`).join("");
         el.innerHTML = `
         <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
           <h2 class="text-xl font-semibold mb-4">Add Sighting</h2>
@@ -1035,7 +1039,7 @@
       }
 
       function renderAdminInteraction(el) {
-        const catOptions = DATA.cats.map(c => `<option value="${safeText(c.name)}">${safeText(c.name)}</option>`).join("");
+        const catOptions = buildCatList().map(c => `<option value="${safeText(c.name)}">${safeText(c.name)}</option>`).join("");
         const interactionTypes = ["feeding", "trap-neuter-return", "medical", "socialization", "shelter", "adoption", "observation", "other"];
         el.innerHTML = `
         <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
@@ -1141,19 +1145,20 @@
       }
 
       function renderAdminDebug(el) {
+        const cats = buildCatList();
         el.innerHTML = `
         <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
           <h2 class="text-xl font-semibold mb-4">Data Preview</h2>
           <div class="mb-4">
-            <p class="text-slate-300 text-sm mb-1">Cats: ${DATA.cats.length}</p>
+            <p class="text-slate-300 text-sm mb-1">Inferred cats: ${cats.length}</p>
             <p class="text-slate-300 text-sm mb-1">Sightings: ${DATA.sightings.length}</p>
             <p class="text-slate-300 text-sm mb-2">Interactions: ${DATA.interactions.length}</p>
             <button id="refresh-data-btn" class="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-400/20">Refresh Data</button>
           </div>
           <div class="grid gap-4">
             <details class="rounded-xl border border-white/10 bg-black/20 p-4">
-              <summary class="cursor-pointer font-medium text-slate-200">View Cats Data</summary>
-              <pre class="mt-3 p-3 bg-slate-950/60 rounded-lg text-xs text-slate-300 overflow-auto max-h-64">${safeText(JSON.stringify(DATA.cats, null, 2))}</pre>
+              <summary class="cursor-pointer font-medium text-slate-200">View Inferred Cats</summary>
+              <pre class="mt-3 p-3 bg-slate-950/60 rounded-lg text-xs text-slate-300 overflow-auto max-h-64">${safeText(JSON.stringify(cats, null, 2))}</pre>
             </details>
             <details class="rounded-xl border border-white/10 bg-black/20 p-4">
               <summary class="cursor-pointer font-medium text-slate-200">View Sightings Data</summary>
@@ -1183,7 +1188,6 @@
         const el = $("#admin-content");
         switch (adminSection) {
           case "setup": renderAdminSetup(el); break;
-          case "cat": renderAdminCat(el); break;
           case "sighting": renderAdminSighting(el); break;
           case "interaction": renderAdminInteraction(el); break;
           case "debug": renderAdminDebug(el); break;
@@ -1194,32 +1198,6 @@
         $$(".tab-btn").forEach(b => {
           b.className = "tab-btn inline-flex items-center rounded-xl px-3 py-2 text-sm border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10";
           b.addEventListener("click", () => setActiveTab(b.dataset.tab));
-        });
-
-        $$(".admin-nav").forEach(btn => {
-          btn.addEventListener("click", () => {
-            adminSection = btn.dataset.adminSection;
-            $$(".admin-nav").forEach(b => {
-              b.className = "admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10";
-              if (b.dataset.adminSection === adminSection) {
-                b.className = "admin-nav rounded-xl px-4 py-2 text-sm border border-emerald-400/40 bg-emerald-400/10 text-emerald-100";
-              }
-            });
-            renderAdmin();
-          });
-        });
-
-        $$(".status-filter-btn").forEach(btn => {
-          btn.addEventListener("click", () => {
-            catsStatusFilter = btn.dataset.status;
-            $$(".status-filter-btn").forEach(b => {
-              b.className = "status-filter-btn rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10";
-              if (b.dataset.status === catsStatusFilter) {
-                b.className = "status-filter-btn rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-100";
-              }
-            });
-            renderCats();
-          });
         });
 
         $("#menuBtn").addEventListener("click", () => $("#mobileNav").classList.toggle("hidden"));
