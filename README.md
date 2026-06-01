@@ -2,7 +2,7 @@
 
 A lightweight, community-driven website documenting a neighborhood feral cat colony in **Princeton, Indiana**.
 
-This project began the way many things do: with the suspicion that _one_ cat might be overnighting in an evergreen bush… and escalated into educational surveillance, a small cast of recurring characters, and eventually a website.
+This project began the way many things do: with the suspicion that _one_ cat might be overnighting in an evergreen bush, followed by educational surveillance, a small cast of recurring characters, and eventually a public website.
 
 ---
 
@@ -12,7 +12,7 @@ Top Hat Ferals exists to:
 
 - Document sightings, interactions, and new arrivals in a local feral cat colony
 - Share observations in a calm, factual, non-sensational way
-- Provide a public, read-only log for neighborhood awareness
+- Provide a public log for neighborhood awareness
 - Support humane, responsible care through observation and community discussion
 
 This is **not** a rescue organization, enforcement body, or official authority.  
@@ -35,57 +35,110 @@ Conversation and participation happen primarily in the Facebook group.
 
 ---
 
-## 🧩 Technology Stack
+## 🧩 Current Technology Stack
 
-This site is intentionally built using **minimal infrastructure**:
+This site is intentionally built with simple, maintainable tooling.
 
 ### Frontend
 
 - **Static site** hosted on **GitHub Pages**
-- **Tailwind CSS** for styling
-- Vanilla JavaScript (no frameworks)
-- Responsive, mobile-first layout with tab-based navigation
+- **Vanilla JavaScript** in `index.html`
+- **Tailwind CSS** loaded by CDN
+- Responsive, mobile-first layout
+- Single-page tabbed interface
+- Public feed, cats, and about views
+- Admin tab for token-protected record creation and file uploads
 
-### Data Layer
+### Backend / Data Layer
 
-- **Google Sheets** as a lightweight CMS
-  - Tabs for:
-    - Cats
-    - Sightings
-    - Interactions
-    - New Arrivals
-- **Google Apps Script** exposes a read-only JSON endpoint
-- No authentication required for public data
-- No private or personally identifying information stored
+- **LabBox** backend at `https://lab.aismallbizguru.com/api`
+- App/resource namespace: `top-hat-ferals`
+- Resources currently used:
+  - `cats`
+  - `sightings`
+  - `interactions`
+- Public reads for displayed colony data
+- Token-protected writes for admin actions
+- File upload support through LabBox where applicable
+- SQLite-backed records on the LabBox side
+- Object/file storage handled by LabBox where applicable
 
-### Assets
+### Analytics
 
-- Images hosted directly in the GitHub repository
-- Organized by category (`assets/images/cats`, `banners`, etc.)
-- No third-party image hosting required
-
----
-
-## 🔄 Data Flow (High Level)
-
-Google Sheets
-↓
-Apps Script (JSON endpoint)
-↓
-GitHub Pages (fetch + render)
-↓
-Public Website
-
-This approach keeps costs at **$0**, avoids backend servers, and allows non-technical updates via Google Sheets.
+- Anonymous pageview analytics through **Analytics Lite / JunkStats**
+- Tracker script hosted from `https://hmarquardt.github.io/junkdrawer/analytics-lite.js`
+- `site_id`: `top-hat-ferals`
+- Collection endpoint: `https://lab.aismallbizguru.com/api/analytics/collect`
+- No cookies
+- No form-field collection
+- No private user tracking
+- Analytics dashboarding is handled separately by Junk Drawer / JunkStats, not in this repo
 
 ---
 
-## 🐱 Content Model (Overview)
+## 🔄 Data Flow
 
-- **Cats** appear on the site once they have at least one confirmed sighting
-- **Sightings** drive visibility and recency
-- **Interactions** and **New Arrivals** provide narrative context
-- The site updates automatically as the Sheet changes
+Public site:
+
+```text
+LabBox SQLite records + files
+↓
+LabBox API
+↓
+GitHub Pages frontend
+↓
+Public website
+```
+
+Admin actions:
+
+```text
+Admin tab + bearer token
+↓
+LabBox API
+↓
+SQLite records / file storage
+```
+
+Analytics:
+
+```text
+GitHub Pages frontend
+↓
+Analytics Lite / JunkStats tracker
+↓
+LabBox analytics collect endpoint
+```
+
+---
+
+## 🐱 Content Model
+
+- **Cats** represent known regulars and occasional visitors shown from recorded activity
+- **Sightings** drive the public timeline, carousel, and cat roster recency
+- **Interactions** provide additional narrative context around observed events
+- Public views are rendered from LabBox resource records
+
+---
+
+## 🔐 Admin Workflow
+
+The admin tab supports creating records and uploading files through LabBox. Admin actions require a LabBox bearer token.
+
+The token is entered in the browser and stored locally in `localStorage` under this site's storage key. It is not committed to the repository and should not be used on shared or public computers.
+
+Do not document or commit the actual token.
+
+---
+
+## 🔒 Privacy Notes
+
+- Public-facing records should avoid private, sensitive, or personally identifying information
+- Analytics is anonymous pageview analytics
+- The analytics tracker does not create cookies
+- The tracker does not collect form-field values
+- Admin bearer tokens live only in local browser storage and should be treated carefully
+- Photos and updates are shared for neighborhood awareness and humane observation
 
 ---
 
@@ -126,9 +179,10 @@ All observations are community-sourced and informal.
 Built with:
 
 - GitHub Pages
-- Google Sheets
-- Google Apps Script
+- LabBox
 - Tailwind CSS
+- Analytics Lite / JunkStats
 
 Maintained by neighbors.
+
 Directed by cats.
