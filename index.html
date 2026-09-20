@@ -488,13 +488,17 @@
       async function deleteFile(fileId) {
         return await apiFetchJson({ operation: "delete_file", method: "DELETE", path: `/api/apps/${CONFIG.appId}/files/${fileId}` });
       }
+      function encodeUploadFilename(name) {
+        // Browser filenames may contain Unicode (e.g. U+202F); headers must be ASCII ByteStrings.
+        return "utf8:" + encodeURIComponent(name || "upload");
+      }
       async function uploadRecordFile(resourceName, recordId, file) {
         if (!file || !file.size) throw new ApiClientError({ operation: "upload_file", status: null, code: "invalid_file", message: "No file selected" });
         const fileId = await fileCreateId(resourceName, recordId, file);
         const baseType = (file.type || "application/octet-stream").split(";")[0].trim();
         const json = await apiFetchJson({
           operation: "upload_file", method: "POST", path: `/api/apps/${CONFIG.appId}/files`, recordId,
-          headers: { "Content-Type": baseType, "X-Filename": file.name || "upload", "X-File-Id": fileId, "X-Record-Id": recordId, "X-Resource": resourceName },
+          headers: { "Content-Type": baseType, "X-Filename": encodeUploadFilename(file.name || "upload"), "X-File-Id": fileId, "X-Record-Id": recordId, "X-Resource": resourceName },
           body: file,
           file: { name: file.name, type: file.type, size: file.size }
         });
