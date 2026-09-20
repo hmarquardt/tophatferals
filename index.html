@@ -217,8 +217,8 @@
             <p class="mt-6 text-slate-300">As with most things involving cats, they're still very much in charge.</p>
 
             <div class="mt-6 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-5">
-              <p class="text-emerald-100 font-medium">Powered by GitHub Pages + LabBox</p>
-              <p class="mt-2 text-sm text-emerald-200/80">This site now uses LabBox as its backend instead of Google Sheets.</p>
+              <p class="text-emerald-100 font-medium">Powered by GitHub Pages + CFLab</p>
+              <p class="mt-2 text-sm text-emerald-200/80">This site now uses CFLab as its backend instead of Google Sheets.</p>
             </div>
           </div>
 
@@ -232,7 +232,7 @@
     <footer class="border-t border-white/10 bg-slate-950/70">
       <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-sm text-slate-400">
         <div>© <span id="year"></span> Top Hat Ferals</div>
-        <div class="text-xs">Built with GitHub Pages + LabBox</div>
+        <div class="text-xs">Built with GitHub Pages + CFLab</div>
       </div>
     </footer>
 
@@ -310,7 +310,7 @@
           status: d.status || "unknown",
           description: d.description || d.notes || "",
           notes: d.notes,
-          photo_url: d.photo_url || d.photo || d.image,
+          photo_url: (Array.isArray(r.photos) && r.photos.length && r.photos[0].url) || d.photo_url || d.photo || d.image || null,
           first_seen: normalizeDate(d.first_seen),
           last_seen: normalizeDate(d.last_seen),
           color: d.color,
@@ -337,7 +337,7 @@
           note: d.note || d.notes || d.description || "",
           notes: d.notes,
           description: d.description,
-          photo_url: d.photo_url || d.photo || d.image,
+          photo_url: (Array.isArray(r.photos) && r.photos.length && r.photos[0].url) || d.photo_url || d.photo || d.image || null,
           confidence: d.confidence,
           source: d.source,
           tags: Array.isArray(d.tags) ? d.tags : (d.tags ? [d.tags] : []),
@@ -363,7 +363,7 @@
           note: d.note || d.notes || d.description || "",
           notes: d.notes,
           description: d.description,
-          photo_url: d.photo_url || d.photo || d.image,
+          photo_url: (Array.isArray(r.photos) && r.photos.length && r.photos[0].url) || d.photo_url || d.photo || d.image || null,
           tags: Array.isArray(d.tags) ? d.tags : (d.tags ? [d.tags] : []),
           created_at: r.created_at,
           updated_at: r.updated_at,
@@ -399,25 +399,6 @@
         return await res.json();
       }
 
-      function extractFileUrl(json) {
-        if (!json) return null;
-        if (json.url) return json.url;
-        if (json.download_url) return json.download_url;
-        if (json.file && json.file.url) return json.file.url;
-        if (json.file && json.file.download_url) return json.file.download_url;
-        for (const key of Object.keys(json)) {
-          const val = json[key];
-          if (typeof val === "object" && val !== null) {
-            const url = extractFileUrl(val);
-            if (url) return url;
-          }
-          if (key.toLowerCase().includes("url") && typeof val === "string" && val.startsWith("http")) {
-            return val;
-          }
-        }
-        return null;
-      }
-
       async function uploadRecordFile(resourceName, recordId, file) {
         const url = `${CONFIG.apiBase}/api/apps/${CONFIG.appId}/files`;
         const fileId = await fileCreateId(resourceName, recordId, file);
@@ -430,22 +411,6 @@
         }
         if (json.download_url) json.url = CONFIG.apiBase + json.download_url;
         return json;
-      }
-
-      async function updateRecordPhotoUrl(resourceName, recordId, photoUrl) {
-        // CFLab PATCH replaces the whole data object, so merge the current payload
-        // before writing instead of sending a photo-only partial object.
-        const recordRes = await fetch(`${appRecordsUrl(resourceName)}/${recordId}`, { headers: withAuth() });
-        if (!recordRes.ok) throw new Error(`Read record HTTP ${recordRes.status}`);
-        const current = await recordRes.json();
-        const data = { ...(current.data || {}), photo_url: photoUrl };
-        const res = await fetch(`${appRecordsUrl(resourceName)}/${recordId}`, {
-          method: "PATCH",
-          headers: withAuth({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ data })
-        });
-        if (!res.ok) throw new Error(`Update record HTTP ${res.status}`);
-        return await res.json();
       }
 
       function sessionToken() {
@@ -899,22 +864,7 @@
               try {
                 const uploadResult = await uploadRecordFile(CONFIG.resources.cats, recordId, file);
                 console.log("File upload result:", uploadResult);
-                const uploadedUrl = extractFileUrl(uploadResult);
-                console.log("Extracted URL:", uploadedUrl);
                 uploadSucceeded = true;
-                if (uploadedUrl) {
-                  try {
-                    await updateRecordPhotoUrl(CONFIG.resources.cats, recordId, uploadedUrl);
-                    console.log("photo_url PATCH succeeded");
-                  } catch (patchErr) {
-                    console.warn("photo_url PATCH failed (image still uploaded):", patchErr.message);
-                    msgEl.textContent = "Image uploaded, but linking to record failed. Refresh to see if it appears.";
-                    msgEl.className = "text-center text-yellow-300";
-                  }
-                } else {
-                  msgEl.textContent = "Image uploaded, but server response did not contain a URL. Check Data Preview.";
-                  msgEl.className = "text-center text-yellow-300";
-                }
               } catch (fileErr) {
                 if (!uploadSucceeded) {
                   msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message;
@@ -1030,21 +980,7 @@
               try {
                 const uploadResult = await uploadRecordFile(CONFIG.resources.sightings, recordId, file);
                 console.log("File upload result:", uploadResult);
-                const uploadedUrl = extractFileUrl(uploadResult);
-                console.log("Extracted URL:", uploadedUrl);
                 uploadSucceeded = true;
-                if (uploadedUrl) {
-                  try {
-                    await updateRecordPhotoUrl(CONFIG.resources.sightings, recordId, uploadedUrl);
-                  } catch (patchErr) {
-                    console.warn("photo_url PATCH failed (image still uploaded):", patchErr.message);
-                    msgEl.textContent = "Image uploaded, but linking to record failed. Refresh to see if it appears.";
-                    msgEl.className = "text-center text-yellow-300";
-                  }
-                } else {
-                  msgEl.textContent = "Image uploaded, but server response did not contain a URL. Check Data Preview.";
-                  msgEl.className = "text-center text-yellow-300";
-                }
               } catch (fileErr) {
                 if (!uploadSucceeded) {
                   msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message;
@@ -1152,21 +1088,7 @@
               try {
                 const uploadResult = await uploadRecordFile(CONFIG.resources.interactions, recordId, file);
                 console.log("File upload result:", uploadResult);
-                const uploadedUrl = extractFileUrl(uploadResult);
-                console.log("Extracted URL:", uploadedUrl);
                 uploadSucceeded = true;
-                if (uploadedUrl) {
-                  try {
-                    await updateRecordPhotoUrl(CONFIG.resources.interactions, recordId, uploadedUrl);
-                  } catch (patchErr) {
-                    console.warn("photo_url PATCH failed (image still uploaded):", patchErr.message);
-                    msgEl.textContent = "Image uploaded, but linking to record failed. Refresh to see if it appears.";
-                    msgEl.className = "text-center text-yellow-300";
-                  }
-                } else {
-                  msgEl.textContent = "Image uploaded, but server response did not contain a URL. Check Data Preview.";
-                  msgEl.className = "text-center text-yellow-300";
-                }
               } catch (fileErr) {
                 if (!uploadSucceeded) {
                   msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message;
