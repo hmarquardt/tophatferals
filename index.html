@@ -149,7 +149,7 @@
       <section id="admin-view" class="tab-panel hidden">
         <div class="max-w-2xl mx-auto">
           <div class="bg-yellow-500/10 border border-yellow-400/30 rounded-2xl p-4 mb-6">
-            <p class="text-yellow-200 text-sm">⚠️ This admin panel requires a LabBox bearer token. The token is stored only in this browser's localStorage. Do not use this on a shared/public computer.</p>
+            <p class="text-yellow-200 text-sm">⚠️ This admin panel signs in with a CFLab account. The session is kept only for this browser tab and is not written to public pages.</p>
           </div>
 
           <nav id="admin-nav" class="flex flex-wrap gap-2 mb-6 border-b border-white/10 pb-4"></nav>
@@ -239,14 +239,14 @@
     <script>
       const CONFIG = {
         siteName: "Top Hat Ferals",
-        apiBase: "https://lab.aismallbizguru.com/api",
+        apiBase: "https://cflab.aismallbizguru.com",
         appId: "top-hat-ferals",
         resources: {
           cats: "cats",
           sightings: "sightings",
           interactions: "interactions"
         },
-        tokenStorageKey: "thf_labbox_bearer_token",
+        sessionStorageKey: "thf_session_v1",
         userNameStorageKey: "thf_labbox_user_name",
         timelineCount: 75,
         carouselCount: 6
@@ -372,7 +372,7 @@
       }
 
       async function fetchResource(resourceName) {
-        const url = `${CONFIG.apiBase}/${CONFIG.appId}/${resourceName}`;
+        const url = `${CONFIG.apiBase}/api/public/${CONFIG.appId}/${resourceName}`;
         try {
           const res = await fetch(url);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -390,11 +390,8 @@
       }
 
       async function createRecord(resourceName, data) {
-        const url = `${CONFIG.apiBase}/${CONFIG.appId}/${resourceName}`;
-        const token = getBearerToken();
-        const headers = { "Content-Type": "application/json" };
-        if (token) headers["Authorization"] = `Bearer ${token}`;
-        const res = await fetch(url, { method: "POST", headers, body: JSON.stringify({ data }) });
+        const url = appRecordsUrl(resourceName);
+        const res = await fetch(url, { method: "POST", headers: withAuth({ "Content-Type": "application/json" }), body: JSON.stringify({ data }) });
         if (!res.ok) {
           const errText = await res.text();
           throw new Error(`HTTP ${res.status}: ${errText}`);
@@ -422,45 +419,56 @@
       }
 
       async function uploadRecordFile(resourceName, recordId, file) {
-        const url = `${CONFIG.apiBase}/${CONFIG.appId}/${resourceName}/${recordId}/files`;
-        const token = getBearerToken();
-        const formData = new FormData();
-        formData.append("file", file);
-        const headers = {};
-        if (token) headers["Authorization"] = `Bearer ${token}`;
-        const res = await fetch(url, { method: "POST", headers, body: formData });
+        const url = `${CONFIG.apiBase}/api/apps/${CONFIG.appId}/files`;
+        const fileId = await fileCreateId(resourceName, recordId, file);
+        const baseType = (file.type || "application/octet-stream").split(";")[0].trim();
+        const res = await fetch(url, { method: "POST", headers: withAuth({ "Content-Type": baseType, "X-Filename": file.name || "upload", "X-File-Id": fileId, "X-Record-Id": recordId, "X-Resource": resourceName }), body: file });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
           console.warn("File upload returned HTTP", res.status, json);
           throw new Error(`File upload HTTP ${res.status}`);
         }
+        if (json.download_url) json.url = CONFIG.apiBase + json.download_url;
         return json;
       }
 
       async function updateRecordPhotoUrl(resourceName, recordId, photoUrl) {
-        const url = `${CONFIG.apiBase}/${CONFIG.appId}/${resourceName}/${recordId}`;
-        const token = getBearerToken();
-        const headers = { "Content-Type": "application/json" };
-        if (token) headers["Authorization"] = `Bearer ${token}`;
-        const res = await fetch(url, {
+        // CFLab PATCH replaces the whole data object, so merge the current payload
+        // before writing instead of sending a photo-only partial object.
+        const recordRes = await fetch(`${appRecordsUrl(resourceName)}/${recordId}`, { headers: withAuth() });
+        if (!recordRes.ok) throw new Error(`Read record HTTP ${recordRes.status}`);
+        const current = await recordRes.json();
+        const data = { ...(current.data || {}), photo_url: photoUrl };
+        const res = await fetch(`${appRecordsUrl(resourceName)}/${recordId}`, {
           method: "PATCH",
-          headers,
-          body: JSON.stringify({ data: { photo_url: photoUrl } })
+          headers: withAuth({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ data })
         });
         if (!res.ok) throw new Error(`Update record HTTP ${res.status}`);
         return await res.json();
       }
 
-      function getBearerToken() {
-        return localStorage.getItem(CONFIG.tokenStorageKey) || "";
+      function sessionToken() {
+        try { return sessionStorage.getItem(CONFIG.sessionStorageKey) || ""; } catch (e) { return ""; }
       }
-
-      function saveBearerToken(token) {
-        localStorage.setItem(CONFIG.tokenStorageKey, token);
+      function setSessionToken(token) {
+        try { if (token) sessionStorage.setItem(CONFIG.sessionStorageKey, token); else sessionStorage.removeItem(CONFIG.sessionStorageKey); } catch (e) {}
       }
-
-      function clearBearerToken() {
-        localStorage.removeItem(CONFIG.tokenStorageKey);
+      function getBearerToken() { return sessionToken(); }
+      function withAuth(extra) {
+        const token = sessionToken();
+        return token ? { "Authorization": "Bearer " + token, ...(extra || {}) } : { ...(extra || {}) };
+      }
+      function appRecordsUrl(resourceName) {
+        return `${CONFIG.apiBase}/api/apps/${CONFIG.appId}/resources/${resourceName}/records`;
+      }
+      async function fileCreateId(resourceName, recordId, file) {
+        const data = new TextEncoder().encode([resourceName, recordId, file.name, file.size, file.lastModified, file.type].join("|"));
+        const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", data)).slice(0, 16);
+        digest[6] = (digest[6] & 0x0f) | 0x40;
+        digest[8] = (digest[8] & 0x3f) | 0x80;
+        const hex = [...digest].map(b => b.toString(16).padStart(2, "0")).join("");
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
       }
 
       function parseTags(tagString) {
@@ -694,7 +702,7 @@
       }
 
       function renderAdmin() {
-        const hasToken = !!getBearerToken();
+        const hasToken = !!sessionToken();
         if (!hasToken) adminSection = "setup";
         const nav = $("#admin-nav");
         if (hasToken) {
@@ -726,70 +734,62 @@
       }
 
       function renderAdminSetup(el) {
-        const hasToken = !!getBearerToken();
-        const tokenStatusHtml = hasToken
-          ? `<span class="inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-sm text-emerald-300"><span class="h-2 w-2 rounded-full bg-emerald-400"></span>Token saved</span>`
-          : `<span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-400"><span class="h-2 w-2 rounded-full bg-slate-500"></span>No token</span>`;
+        const signedIn = !!sessionToken();
         el.innerHTML = `
         <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
-          <h2 class="text-xl font-semibold mb-4">Token Setup</h2>
-          <div class="mb-4">
-            <label class="block text-slate-200 mb-2">Bearer Token</label>
-            <input type="password" id="token-input" placeholder="Enter your LabBox bearer token" class="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/60">
-            <div class="flex flex-wrap gap-2 mt-3">
-              <button id="save-token-btn" class="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-400/20">Save Token</button>
-              <button id="clear-token-btn" class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Clear Token</button>
-              <button id="test-token-btn" class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Test Token</button>
+          <h2 class="text-xl font-semibold mb-4">CFLab Account</h2>
+          ${signedIn ? `
+            <p class="text-slate-300 text-sm mb-3">Signed in. Sighting and interaction changes sync to CFLab with your account.</p>
+            <button id="cfg-signout" class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Sign out</button>
+          ` : `
+            <div class="mb-3">
+              <label class="block text-slate-200 mb-2">Email</label>
+              <input type="email" id="cfg-email" autocomplete="username" class="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/60">
             </div>
-          </div>
-          <div id="token-status" class="mb-2">${tokenStatusHtml}</div>
+            <div class="mb-3">
+              <label class="block text-slate-200 mb-2">Password</label>
+              <input type="password" id="cfg-password" autocomplete="current-password" class="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/60">
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button id="cfg-signin" class="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-400/20">Sign in</button>
+              <button id="cfg-test" class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Test connection</button>
+            </div>
+          `}
           <p id="token-message" class="mt-2 text-sm"></p>
         </div>
       `;
-
-        $("#save-token-btn").addEventListener("click", () => {
-          const token = $("#token-input").value.trim();
-          if (token) {
-            saveBearerToken(token);
-            $("#token-status").innerHTML = `<span class="inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-sm text-emerald-300"><span class="h-2 w-2 rounded-full bg-emerald-400"></span>Token saved</span>`;
-          }
-        });
-
-        $("#clear-token-btn").addEventListener("click", () => {
-          clearBearerToken();
-          $("#token-input").value = "";
-          $("#token-status").innerHTML = `<span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-400"><span class="h-2 w-2 rounded-full bg-slate-500"></span>No token</span>`;
-          $("#token-message").textContent = "";
-        });
-
-        $("#test-token-btn").addEventListener("click", async () => {
-          const token = getBearerToken();
-          if (!token) {
-            $("#token-message").textContent = "No token to test";
-            $("#token-message").className = "mt-2 text-sm text-rose-300";
-            return;
-          }
-          $("#token-message").textContent = "Testing…";
-          $("#token-message").className = "mt-2 text-sm text-slate-300";
-          try {
-            const res = await fetch(`${CONFIG.apiBase}/${CONFIG.appId}/cats`, {
-              method: "POST",
-              headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ data: { name: "__token_test__", status: "active" } })
-            });
-            const status = res.status;
-            if (res.ok && (status === 200 || status === 201)) {
-              $("#token-message").textContent = `Token test: HTTP ${status} ✓ Success`;
-              $("#token-message").className = "mt-2 text-sm text-emerald-300";
-            } else {
-              $("#token-message").textContent = `Token test: HTTP ${status} ✗ Failed`;
-              $("#token-message").className = "mt-2 text-sm text-rose-300";
-            }
-          } catch (e) {
-            $("#token-message").textContent = `Token test failed: ${e.message}`;
-            $("#token-message").className = "mt-2 text-sm text-rose-300";
-          }
-        });
+        const message = (text, cls) => { $("#token-message").textContent = text; $("#token-message").className = "mt-2 text-sm " + cls; };
+        if ($("#cfg-signin")) {
+          $("#cfg-signin").addEventListener("click", async () => {
+            const email = $("#cfg-email").value.trim();
+            const password = $("#cfg-password").value;
+            if (!email || !password) { message("Enter your CFLab email and password.", "text-rose-300"); return; }
+            message("Signing in…", "text-slate-300");
+            try {
+              const res = await fetch(`${CONFIG.apiBase}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const data = await res.json();
+              setSessionToken(data.token);
+              $("#cfg-password").value = "";
+              renderAdmin();
+            } catch (e) { message("Sign-in failed: " + e.message, "text-rose-300"); }
+          });
+          $("#cfg-test").addEventListener("click", async () => {
+            try {
+              const res = await fetch(`${CONFIG.apiBase}/api/public/${CONFIG.appId}/sightings`);
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              message(`Public data reachable: ${(json.records || []).length} sightings.`, "text-emerald-300");
+            } catch (e) { message("Connection test failed: " + e.message, "text-rose-300"); }
+          });
+        }
+        if ($("#cfg-signout")) {
+          $("#cfg-signout").addEventListener("click", async () => {
+            try { await fetch(`${CONFIG.apiBase}/api/auth/logout`, { method: "POST", headers: withAuth() }); } catch (e) {}
+            setSessionToken("");
+            renderAdmin();
+          });
+        }
       }
 
       function renderAdminCat(el) {
