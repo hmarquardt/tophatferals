@@ -389,27 +389,116 @@
         }
       }
 
-      async function createRecord(resourceName, data) {
-        const url = appRecordsUrl(resourceName);
-        const res = await fetch(url, { method: "POST", headers: withAuth({ "Content-Type": "application/json" }), body: JSON.stringify({ data }) });
-        if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(`HTTP ${res.status}: ${errText}`);
+      const DIAG_KEY = "thf_diag_v1";
+      const DIAG_CAP = 150;
+      class ApiClientError extends Error {
+        constructor(info) {
+          super(info.message || ("HTTP " + (info.status || "?")));
+          this.name = "ApiClientError";
+          this.operation = info.operation || null;
+          this.status = info.status == null ? null : info.status;
+          this.code = info.code || null;
         }
-        return await res.json();
+      }
+      function readDiagnostics() {
+        try { const raw = sessionStorage.getItem(DIAG_KEY); const list = raw ? JSON.parse(raw) : []; return Array.isArray(list) ? list : []; }
+        catch (e) { return []; }
+      }
+      function writeDiagnostics(list) {
+        try { sessionStorage.setItem(DIAG_KEY, JSON.stringify(list.slice(0, DIAG_CAP))); } catch (e) {}
+      }
+      function logDiagnostic(event) {
+        const entry = {
+          time: new Date().toISOString(),
+          level: event.level || "info",
+          operation: event.operation || "unknown",
+          stage: event.stage || "client",
+          method: event.method || null,
+          path: event.path ? String(event.path).split("?")[0].slice(0, 200) : null,
+          status: event.status == null ? null : event.status,
+          error_code: event.error_code || null,
+          message: event.message ? String(event.message).slice(0, 300) : null,
+          record_id: event.record_id || null,
+          file: event.file ? { name: String(event.file.name || "").slice(0, 120), type: event.file.type || "", size: event.file.size || 0 } : null,
+          duration_ms: event.duration_ms == null ? null : event.duration_ms
+        };
+        const list = readDiagnostics();
+        list.unshift(entry);
+        writeDiagnostics(list);
+        updateDiagnosticBadge();
+        if (adminSection === "diagnostics") renderAdminContent();
+        return entry;
+      }
+      function recentErrorCount() {
+        const cutoff = Date.now() - 10 * 60 * 1000;
+        return readDiagnostics().filter(e => e.level === "error" && Date.parse(e.time) > cutoff).length;
+      }
+      function updateDiagnosticBadge() {
+        const badge = document.getElementById("diag-badge");
+        if (!badge) return;
+        const count = recentErrorCount();
+        badge.textContent = String(count);
+        badge.style.display = count ? "inline-flex" : "none";
+      }
+      async function apiFetchJson(options) {
+        const started = performance.now();
+        const path = String(options.path || "");
+        const fileMeta = options.file || null;
+        logDiagnostic({ level: "info", operation: options.operation, stage: "request", method: options.method, path, record_id: options.recordId, file: fileMeta });
+        let response;
+        try {
+          const headers = options.auth === false ? { ...(options.headers || {}) } : withAuth(options.headers || {});
+          response = await fetch(CONFIG.apiBase + path, { method: options.method, headers, body: options.body });
+        } catch (error) {
+          const duration = Math.round(performance.now() - started);
+          logDiagnostic({ level: "error", operation: options.operation, stage: "network", method: options.method, path, message: error && error.message ? error.message : "network error", record_id: options.recordId, file: fileMeta, duration_ms: duration });
+          throw new ApiClientError({ operation: options.operation, status: null, code: "network_error", message: "Network error: " + (error && error.message ? error.message : "fetch failed") });
+        }
+        const duration = Math.round(performance.now() - started);
+        let payload = null;
+        let text = "";
+        try { text = await response.text(); payload = text ? JSON.parse(text) : null; } catch (e) { payload = null; }
+        if (!response.ok) {
+          const code = payload && payload.error && payload.error.code ? payload.error.code : null;
+          const message = payload && payload.error && payload.error.message ? payload.error.message : (text ? text.slice(0, 200) : "HTTP " + response.status);
+          logDiagnostic({ level: "error", operation: options.operation, stage: "response", method: options.method, path, status: response.status, error_code: code, message, record_id: options.recordId, file: fileMeta, duration_ms: duration });
+          if (response.status === 401 && options.auth !== false) {
+            setSessionToken("");
+            setStatus("Session expired. Sign in again; saved data was not lost.");
+          }
+          throw new ApiClientError({ operation: options.operation, status: response.status, code, message });
+        }
+        logDiagnostic({ level: "info", operation: options.operation, stage: "response", method: options.method, path, status: response.status, record_id: options.recordId, file: fileMeta, duration_ms: duration });
+        return payload;
       }
 
+      function recordPath(resourceName) { return `/api/apps/${CONFIG.appId}/resources/${resourceName}/records`; }
+      async function createRecord(resourceName, data) {
+        return await apiFetchJson({ operation: "create_" + resourceName, method: "POST", path: recordPath(resourceName), headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data }) });
+      }
+      async function fetchRecord(resourceName, recordId) {
+        return await apiFetchJson({ operation: "read_" + resourceName, method: "GET", path: `${recordPath(resourceName)}/${recordId}`, recordId });
+      }
+      async function updateRecord(resourceName, recordId, data) {
+        return await apiFetchJson({ operation: "update_" + resourceName, method: "PATCH", path: `${recordPath(resourceName)}/${recordId}`, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data }), recordId });
+      }
+      async function archiveRecord(resourceName, recordId) {
+        return await apiFetchJson({ operation: "archive_" + resourceName, method: "DELETE", path: `${recordPath(resourceName)}/${recordId}`, recordId });
+      }
+      async function deleteFile(fileId) {
+        return await apiFetchJson({ operation: "delete_file", method: "DELETE", path: `/api/apps/${CONFIG.appId}/files/${fileId}` });
+      }
       async function uploadRecordFile(resourceName, recordId, file) {
-        const url = `${CONFIG.apiBase}/api/apps/${CONFIG.appId}/files`;
+        if (!file || !file.size) throw new ApiClientError({ operation: "upload_file", status: null, code: "invalid_file", message: "No file selected" });
         const fileId = await fileCreateId(resourceName, recordId, file);
         const baseType = (file.type || "application/octet-stream").split(";")[0].trim();
-        const res = await fetch(url, { method: "POST", headers: withAuth({ "Content-Type": baseType, "X-Filename": file.name || "upload", "X-File-Id": fileId, "X-Record-Id": recordId, "X-Resource": resourceName }), body: file });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          console.warn("File upload returned HTTP", res.status, json);
-          throw new Error(`File upload HTTP ${res.status}`);
-        }
-        if (json.download_url) json.url = CONFIG.apiBase + json.download_url;
+        const json = await apiFetchJson({
+          operation: "upload_file", method: "POST", path: `/api/apps/${CONFIG.appId}/files`, recordId,
+          headers: { "Content-Type": baseType, "X-Filename": file.name || "upload", "X-File-Id": fileId, "X-Record-Id": recordId, "X-Resource": resourceName },
+          body: file,
+          file: { name: file.name, type: file.type, size: file.size }
+        });
+        if (json && json.download_url) json.url = CONFIG.apiBase + json.download_url;
         return json;
       }
 
@@ -675,7 +764,9 @@
             <button data-admin-section="setup" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">1. Setup</button>
             <button data-admin-section="sighting" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">2. Add Sighting</button>
             <button data-admin-section="interaction" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">3. Add Interaction</button>
-            <button data-admin-section="debug" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">4. Data Preview</button>
+            <button data-admin-section="manage" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">4. Manage Sightings</button>
+            <button data-admin-section="diagnostics" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">5. Diagnostics <span id="diag-badge" class="ml-1 rounded-full bg-rose-500/80 px-2 py-0.5 text-xs text-white" style="display:none">0</span></button>
+            <button data-admin-section="debug" class="admin-nav rounded-xl px-4 py-2 text-sm border border-white/10 bg-white/5 hover:bg-white/10">6. Data Preview</button>
           `;
         } else {
           nav.innerHTML = `
@@ -694,8 +785,11 @@
           case "setup": renderAdminSetup(el); break;
           case "sighting": renderAdminSighting(el); break;
           case "interaction": renderAdminInteraction(el); break;
+          case "manage": renderAdminManage(el); break;
+          case "diagnostics": renderAdminDiagnostics(el); break;
           case "debug": renderAdminDebug(el); break;
         }
+        updateDiagnosticBadge();
       }
 
       function renderAdminSetup(el) {
@@ -731,13 +825,14 @@
             if (!email || !password) { message("Enter your CFLab email and password.", "text-rose-300"); return; }
             message("Signing in…", "text-slate-300");
             try {
-              const res = await fetch(`${CONFIG.apiBase}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              const data = await res.json();
+              const data = await apiFetchJson({ operation: "login", method: "POST", path: "/api/auth/login", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }), auth: false });
               setSessionToken(data.token);
               $("#cfg-password").value = "";
+              logDiagnostic({ level: "info", operation: "login", stage: "client", message: "Signed in" });
               renderAdmin();
-            } catch (e) { message("Sign-in failed: " + e.message, "text-rose-300"); }
+            } catch (e) {
+              message(e.status === 401 ? "Invalid email or password." : "Sign-in failed: " + e.message, "text-rose-300");
+            }
           });
           $("#cfg-test").addEventListener("click", async () => {
             try {
@@ -750,8 +845,9 @@
         }
         if ($("#cfg-signout")) {
           $("#cfg-signout").addEventListener("click", async () => {
-            try { await fetch(`${CONFIG.apiBase}/api/auth/logout`, { method: "POST", headers: withAuth() }); } catch (e) {}
+            try { await apiFetchJson({ operation: "logout", method: "POST", path: "/api/auth/logout" }); } catch (e) {}
             setSessionToken("");
+            logDiagnostic({ level: "info", operation: "logout", stage: "client", message: "Signed out" });
             renderAdmin();
           });
         }
@@ -867,7 +963,7 @@
                 uploadSucceeded = true;
               } catch (fileErr) {
                 if (!uploadSucceeded) {
-                  msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message;
+                  msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message + " You can attach the photo from Manage Sightings.";
                   msgEl.className = "text-center text-yellow-300";
                   await loadAllData();
                   setTimeout(() => renderAdmin(), 2000);
@@ -983,7 +1079,7 @@
                 uploadSucceeded = true;
               } catch (fileErr) {
                 if (!uploadSucceeded) {
-                  msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message;
+                  msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message + " You can attach the photo from Manage Sightings.";
                   msgEl.className = "text-center text-yellow-300";
                   await loadAllData();
                   setTimeout(() => renderAdmin(), 2000);
@@ -1091,7 +1187,7 @@
                 uploadSucceeded = true;
               } catch (fileErr) {
                 if (!uploadSucceeded) {
-                  msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message;
+                  msgEl.textContent = "Record saved, but image upload failed: " + fileErr.message + " You can attach the photo from Manage Sightings.";
                   msgEl.className = "text-center text-yellow-300";
                   await loadAllData();
                   setTimeout(() => renderAdmin(), 2000);
@@ -1110,6 +1206,206 @@
           }
         });
       }
+
+      function renderAdminDiagnostics(el) {
+        const entries = readDiagnostics();
+        const rows = entries.map(e => `
+          <div class="rounded-xl border ${e.level === "error" ? "border-rose-400/30 bg-rose-400/5" : "border-white/10 bg-white/5"} p-3 text-sm">
+            <div class="flex flex-wrap items-center gap-2 text-slate-300">
+              <span class="font-mono text-xs">${safeText(new Date(e.time).toLocaleTimeString())}</span>
+              <span class="rounded-full border border-white/10 px-2 py-0.5 text-xs ${e.level === "error" ? "text-rose-300" : e.level === "warn" ? "text-amber-300" : "text-slate-300"}">${safeText(e.level)}</span>
+              <span>${safeText(e.operation)}</span>
+              <span class="text-xs text-slate-400">${safeText(e.stage)}</span>
+              ${e.method ? `<span class="text-xs text-slate-400">${safeText(e.method)}</span>` : ""}
+              ${e.status != null ? `<span class="rounded-full border border-white/10 px-2 py-0.5 text-xs">${e.status}</span>` : ""}
+              ${e.error_code ? `<span class="rounded-full border border-white/10 px-2 py-0.5 text-xs">${safeText(e.error_code)}</span>` : ""}
+            </div>
+            ${e.message ? `<div class="mt-1 text-slate-200">${safeText(e.message)}</div>` : ""}
+            ${e.file ? `<div class="mt-1 text-xs text-slate-400">${safeText(e.file.name)} · ${safeText(e.file.type || "unknown")} · ${e.file.size} bytes</div>` : ""}
+            ${e.record_id ? `<div class="mt-1 text-xs text-slate-500">record ${safeText(e.record_id)}</div>` : ""}
+            ${e.duration_ms != null ? `<div class="mt-1 text-xs text-slate-500">${e.duration_ms} ms</div>` : ""}
+          </div>`).join("");
+        el.innerHTML = `
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 class="text-xl font-semibold">Diagnostics</h2>
+            <div class="flex gap-2">
+              <button id="diag-copy" class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Copy diagnostics</button>
+              <button id="diag-clear" class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Clear</button>
+            </div>
+          </div>
+          <p class="mb-3 text-xs text-slate-400">Tab-local operational log (max ${DIAG_CAP} events). No tokens, passwords, request bodies, or file bytes are recorded.</p>
+          <div class="grid gap-2">${rows || '<div class="empty">No diagnostic events</div>'}</div>
+        </div>`;
+        $("#diag-clear").addEventListener("click", () => { writeDiagnostics([]); renderAdminContent(); updateDiagnosticBadge(); });
+        $("#diag-copy").addEventListener("click", async () => {
+          const text = entries.map(e => `[${e.time}] ${e.level} ${e.operation} ${e.stage} ${e.method || ""} ${e.path || ""} status=${e.status == null ? "-" : e.status} code=${e.error_code || "-"} msg=${e.message || ""}${e.file ? ` file=${e.file.name} type=${e.file.type} size=${e.file.size}` : ""}${e.record_id ? ` record=${e.record_id}` : ""}${e.duration_ms != null ? ` ms=${e.duration_ms}` : ""}`).join("\n");
+          try { await navigator.clipboard.writeText(text || "no diagnostic events"); setStatus("Diagnostics copied."); }
+          catch (err) { setStatus("Copy failed: " + err.message); }
+        });
+      }
+
+      async function publicSightingPhotos(recordId) {
+        const json = await apiFetchJson({ operation: "refresh", method: "GET", path: `/api/public/${CONFIG.appId}/sightings`, auth: false });
+        const record = (json && json.records || []).find(r => r.id === recordId);
+        return record && Array.isArray(record.photos) ? record.photos : [];
+      }
+      async function renderAdminManage(el) {
+        el.innerHTML = `
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <h2 class="text-xl font-semibold">Manage Sightings</h2>
+            <button id="manage-refresh" class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Refresh</button>
+          </div>
+          <div id="manage-list" class="grid gap-3"><div class="text-sm text-slate-300">Loading…</div></div>
+        </div>`;
+        $("#manage-refresh").addEventListener("click", () => renderAdminManage(el));
+        await loadManageList();
+      }
+      async function loadManageList() {
+        const host = $("#manage-list");
+        if (!host) return;
+        try {
+          const json = await apiFetchJson({ operation: "refresh", method: "GET", path: `/api/public/${CONFIG.appId}/sightings`, auth: false });
+          const records = (json && json.records) || [];
+          if (!records.length) { host.innerHTML = '<div class="empty">No active sightings</div>'; return; }
+          host.innerHTML = records.map(r => {
+            const d = r.data || {};
+            const photos = Array.isArray(r.photos) ? r.photos : [];
+            const note = safeText((d.note || d.notes || d.description || "").slice(0, 140));
+            return `<div class="rounded-xl border border-white/10 bg-white/5 p-3" data-manage-id="${safeText(r.id)}">
+              <div class="flex flex-wrap items-center gap-2 text-sm text-slate-200">
+                <strong>${safeText(d.cat || d.cat_name || "Unknown Cat")}</strong>
+                <span class="rounded-full border border-white/10 px-2 py-0.5 text-xs">${safeText(d.date || "")}</span>
+                ${d.time ? `<span class="rounded-full border border-white/10 px-2 py-0.5 text-xs">${safeText(d.time)}</span>` : ""}
+                <span class="rounded-full border px-2 py-0.5 text-xs ${photos.length ? "border-emerald-400/40 text-emerald-300" : "border-amber-400/40 text-amber-300"}">${photos.length ? photos.length + " photo" + (photos.length > 1 ? "s" : "") : "no photo"}</span>
+              </div>
+              <div class="mt-1 text-sm text-slate-400">${note}</div>
+              <div class="mt-1 text-xs text-slate-500">updated ${safeText(r.updated_at || "")}</div>
+              <div class="mt-2 flex flex-wrap gap-2">
+                <button data-manage-edit="${safeText(r.id)}" class="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10">Edit</button>
+                <button data-manage-photo="${safeText(r.id)}" class="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10">${photos.length ? "Replace Photo" : "Attach Photo"}</button>
+                ${photos.length ? `<button data-manage-removephoto="${safeText(r.id)}" class="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10">Remove Photo</button>` : ""}
+                <button data-manage-archive="${safeText(r.id)}" class="rounded-xl border border-rose-400/40 bg-rose-400/10 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-400/20">Archive</button>
+              </div>
+              <input type="file" accept="image/*" class="hidden" data-manage-file="${safeText(r.id)}">
+            </div>`;
+          }).join("");
+        } catch (error) {
+          host.innerHTML = `<div class="text-sm text-rose-300">${safeText(error.message)}</div>`;
+        }
+      }
+      async function attachManagedPhoto(recordId, file) {
+        setStatus("Uploading photo…");
+        try {
+          const existing = await publicSightingPhotos(recordId);
+          const uploaded = await uploadRecordFile("sightings", recordId, file);
+          if (existing.length && uploaded && uploaded.id) {
+            for (const photo of existing) {
+              if (photo.id === uploaded.id) continue;
+              try { await deleteFile(photo.id); }
+              catch (err) { logDiagnostic({ level: "warn", operation: "delete_file", stage: "client", message: "Old photo not removed: " + err.message, record_id: recordId }); }
+            }
+          }
+          await loadAllData();
+          renderAdminManage($("#admin-content"));
+          setStatus("Photo linked to sighting.");
+        } catch (error) {
+          const hint = error.status === 401 ? " Sign in again; the sighting was not lost." : " You can retry from Manage Sightings.";
+          setStatus("Photo upload failed: " + error.message + hint);
+        }
+      }
+      async function removeManagedPhotos(recordId) {
+        setStatus("Removing photo…");
+        try {
+          const photos = await publicSightingPhotos(recordId);
+          for (const photo of photos) await deleteFile(photo.id);
+          await loadAllData();
+          renderAdminManage($("#admin-content"));
+          setStatus("Photo removed.");
+        } catch (error) { setStatus("Remove photo failed: " + error.message); }
+      }
+      async function archiveManagedSighting(recordId) {
+        setStatus("Archiving sighting…");
+        try {
+          await archiveRecord("sightings", recordId);
+          await loadAllData();
+          renderAdminManage($("#admin-content"));
+          setStatus("Sighting archived.");
+        } catch (error) { setStatus("Archive failed: " + error.message); }
+      }
+      async function renderManageEdit(recordId) {
+        const host = $("#manage-list");
+        host.innerHTML = '<div class="text-sm text-slate-300">Loading…</div>';
+        try {
+          const record = await fetchRecord("sightings", recordId);
+          const d = record.data || {};
+          const field = (name, label, value, type) => `<label class="text-sm text-slate-200">${label}<input name="${name}" type="${type || "text"}" value="${safeText(value == null ? "" : value)}" class="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-slate-100 outline-none focus:border-emerald-400/60"></label>`;
+          host.innerHTML = `
+          <form id="manage-edit-form" class="grid gap-3 rounded-xl border border-emerald-400/30 bg-emerald-400/5 p-4">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              ${field("cat", "Cat", d.cat || d.cat_name || "")}
+              ${field("date", "Date", d.date || "", "date")}
+              ${field("time", "Time", d.time || "")}
+              ${field("location", "Location", d.location || "")}
+              ${field("confidence", "Confidence", d.confidence || "")}
+              ${field("source", "Source", d.source || "")}
+              ${field("tags", "Tags (comma separated)", Array.isArray(d.tags) ? d.tags.join(", ") : (d.tags || ""))}
+              ${field("photo_url", "Manual photo URL", d.photo_url || "")}
+            </div>
+            <label class="text-sm text-slate-200">Note<textarea name="note" rows="3" class="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-slate-100 outline-none focus:border-emerald-400/60">${safeText(d.note || d.notes || d.description || "")}</textarea></label>
+            <div class="flex gap-2">
+              <button type="submit" class="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-400/20">Save changes</button>
+              <button type="button" id="manage-edit-cancel" class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Cancel</button>
+            </div>
+            <p id="manage-edit-msg" class="text-sm"></p>
+          </form>`;
+          $("#manage-edit-cancel").addEventListener("click", () => renderAdminManage($("#admin-content")));
+          $("#manage-edit-form").addEventListener("submit", async event => {
+            event.preventDefault();
+            const form = event.target;
+            const msg = $("#manage-edit-msg");
+            const merged = { ...d };
+            const setOrDelete = (key, value) => { if (value === "" || value == null) delete merged[key]; else merged[key] = value; };
+            setOrDelete("cat", form.cat.value.trim());
+            setOrDelete("cat_name", form.cat.value.trim());
+            setOrDelete("date", form.date.value.trim());
+            setOrDelete("time", form.time.value.trim());
+            setOrDelete("location", form.location.value.trim());
+            setOrDelete("note", form.note.value);
+            setOrDelete("confidence", form.confidence.value.trim());
+            setOrDelete("source", form.source.value.trim());
+            setOrDelete("tags", parseTags(form.tags.value));
+            setOrDelete("photo_url", form.photo_url.value.trim());
+            msg.textContent = "Saving…"; msg.className = "text-sm text-slate-300";
+            try {
+              await updateRecord("sightings", recordId, merged);
+              msg.textContent = "Saved."; msg.className = "text-sm text-emerald-300";
+              await loadAllData();
+            } catch (error) {
+              msg.textContent = "Save failed: " + error.message; msg.className = "text-sm text-rose-300";
+            }
+          });
+        } catch (error) { host.innerHTML = `<div class="text-sm text-rose-300">${safeText(error.message)}</div>`; }
+      }
+      document.addEventListener("click", async event => {
+        const edit = event.target.closest("[data-manage-edit]");
+        if (edit) { await renderManageEdit(edit.getAttribute("data-manage-edit")); return; }
+        const photo = event.target.closest("[data-manage-photo]");
+        if (photo) { const input = document.querySelector(`input[data-manage-file="${photo.getAttribute("data-manage-photo")}"]`); if (input) input.click(); return; }
+        const remove = event.target.closest("[data-manage-removephoto]");
+        if (remove && confirm("Remove the linked photo(s) for this sighting?")) { await removeManagedPhotos(remove.getAttribute("data-manage-removephoto")); return; }
+        const archive = event.target.closest("[data-manage-archive]");
+        if (archive && confirm("Archive this sighting? It will disappear from the public site. Linked files are kept.")) { await archiveManagedSighting(archive.getAttribute("data-manage-archive")); }
+      });
+      document.addEventListener("change", async event => {
+        const input = event.target.closest("input[data-manage-file]");
+        if (!input || !input.files || !input.files[0]) return;
+        const recordId = input.getAttribute("data-manage-file");
+        const file = input.files[0];
+        input.value = "";
+        await attachManagedPhoto(recordId, file);
+      });
 
       function renderAdminDebug(el) {
         const cats = buildCatList();
@@ -1157,6 +1453,8 @@
           case "setup": renderAdminSetup(el); break;
           case "sighting": renderAdminSighting(el); break;
           case "interaction": renderAdminInteraction(el); break;
+          case "manage": renderAdminManage(el); break;
+          case "diagnostics": renderAdminDiagnostics(el); break;
           case "debug": renderAdminDebug(el); break;
         }
       }
